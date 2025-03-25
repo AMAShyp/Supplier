@@ -5,7 +5,7 @@ from db_handler import run_query, run_transaction
 
 def get_purchase_orders_for_supplier(supplier_id):
     """
-    Retrieves active purchase orders (Pending, Accepted, Shipping)
+    Retrieves only active purchase orders (e.g., 'Pending', 'Accepted', 'Shipping')
     from PurchaseOrders for this supplier.
     """
     query = """
@@ -15,7 +15,7 @@ def get_purchase_orders_for_supplier(supplier_id):
         ExpectedDelivery,
         Status,
         SupProposedDeliver,
-        ProposedStatus,
+        OriginalPOID,
         SupplierNote
     FROM PurchaseOrders
     WHERE SupplierID = %s
@@ -26,7 +26,8 @@ def get_purchase_orders_for_supplier(supplier_id):
 
 def get_archived_purchase_orders(supplier_id):
     """
-    Retrieves archived (Declined, Delivered, Completed) purchase orders for this supplier.
+    Retrieves archived purchase orders for this supplier
+    (e.g., 'Declined', 'Delivered', 'Completed', 'Declined by Supplier', etc.).
     """
     query = """
     SELECT
@@ -35,7 +36,7 @@ def get_archived_purchase_orders(supplier_id):
         ExpectedDelivery,
         Status,
         SupProposedDeliver,
-        ProposedStatus,
+        OriginalPOID,
         SupplierNote
     FROM PurchaseOrders
     WHERE SupplierID = %s
@@ -46,8 +47,8 @@ def get_archived_purchase_orders(supplier_id):
 
 def update_purchase_order_status(poid, status, expected_delivery=None, supplier_note=None):
     """
-    Updates main PO status and (optionally) ExpectedDelivery and SupplierNote (if e.g. declining).
-    Does NOT set ProposedStatus or SupProposedDeliver. Use update_po_order_proposal for that.
+    Updates the unified Status of a purchase order.
+    Optionally adjusts 'ExpectedDelivery' and 'SupplierNote'.
     """
     query = """
     UPDATE PurchaseOrders
@@ -59,27 +60,28 @@ def update_purchase_order_status(poid, status, expected_delivery=None, supplier_
     """
     run_transaction(query, (status, expected_delivery, supplier_note, poid))
 
-def update_po_order_proposal(poid, proposed_deliver=None, proposed_status=None, supplier_note=None):
+def update_po_order_proposal(poid, sup_proposed_deliver=None, supplier_note=None):
     """
-    Lets the supplier propose an overall new Delivery Date (SupProposedDeliver)
-    and set ProposedStatus to e.g. 'Proposed', plus optionally a note.
+    Supplier proposes an overall new delivery date/time (SupProposedDeliver),
+    plus an optional note. The Status can remain e.g. 'Proposed' or 'Adjusted' 
+    if your system uses that.
     """
     query = """
     UPDATE PurchaseOrders
     SET
         SupProposedDeliver = COALESCE(%s, SupProposedDeliver),
-        ProposedStatus = COALESCE(%s, ProposedStatus),
         SupplierNote = COALESCE(%s, SupplierNote)
     WHERE POID = %s;
     """
-    run_transaction(query, (proposed_deliver, proposed_status, supplier_note, poid))
+    run_transaction(query, (sup_proposed_deliver, supplier_note, poid))
 
 def get_purchase_order_items(poid):
     """
-    Retrieves items from PurchaseOrderItems, including:
-    - ItemNameEnglish, ItemPicture (auto-detect format)
-    - OrderedQuantity, EstimatedPrice
-    - SupProposedQuantity, SupProposedPrice
+    Retrieves all items from PurchaseOrderItems for the given PO.
+    Includes:
+      - Raw item data (ItemNameEnglish, OrderedQuantity, EstimatedPrice)
+      - Proposed columns (SupProposedQuantity, SupProposedPrice)
+      - Decodes ItemPicture to base64 data URI for inline display.
     """
     query = """
     SELECT
@@ -98,14 +100,12 @@ def get_purchase_order_items(poid):
     if not results:
         return []
 
-    # Convert each item’s base64 → data URI for display
+    # Convert base64 to data:image/... for inline <img> display
     for item in results:
         if item["itempicture"]:
             try:
                 raw_b64 = item["itempicture"]
                 image_bytes = base64.b64decode(raw_b64)
-
-                # Detect image format
                 img = Image.open(io.BytesIO(image_bytes))
                 image_format = img.format or "PNG"
 
@@ -128,17 +128,17 @@ def get_purchase_order_items(poid):
 
     return results
 
-def update_po_item_proposal(poid, itemid, sup_qty, sup_price):
+def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
     """
-    Saves proposed changes for this item:
+    Supplier proposes changes for a specific item:
       - SupProposedQuantity
       - SupProposedPrice
     """
     query = """
     UPDATE PurchaseOrderItems
     SET
-      SupProposedQuantity = %s,
-      SupProposedPrice = %s
+      SupProposedQuantity = COALESCE(%s, SupProposedQuantity),
+      SupProposedPrice = COALESCE(%s, SupProposedPrice)
     WHERE POID = %s
       AND ItemID = %s;
     """
