@@ -5,7 +5,7 @@ from db_handler import run_query, run_transaction
 
 def get_purchase_orders_for_supplier(supplier_id):
     """
-    Retrieves only active purchase orders (e.g., 'Pending', 'Accepted', 'Shipping')
+    Retrieves active purchase orders (e.g., 'Pending', 'Accepted', 'Shipping')
     from PurchaseOrders for this supplier.
     """
     query = """
@@ -26,8 +26,8 @@ def get_purchase_orders_for_supplier(supplier_id):
 
 def get_archived_purchase_orders(supplier_id):
     """
-    Retrieves archived purchase orders for this supplier
-    (e.g., 'Declined', 'Delivered', 'Completed', 'Declined by Supplier', etc.).
+    Retrieves archived or completed purchase orders 
+    (e.g., 'Declined', 'Delivered', 'Completed') for this supplier.
     """
     query = """
     SELECT
@@ -47,8 +47,8 @@ def get_archived_purchase_orders(supplier_id):
 
 def update_purchase_order_status(poid, status, expected_delivery=None, supplier_note=None):
     """
-    Updates the unified Status of a purchase order.
-    Optionally adjusts 'ExpectedDelivery' and 'SupplierNote'.
+    Updates the PO's unified Status and optionally ExpectedDelivery & SupplierNote.
+    Use this for direct Accept/Decline flows, shipping, etc.
     """
     query = """
     UPDATE PurchaseOrders
@@ -60,15 +60,16 @@ def update_purchase_order_status(poid, status, expected_delivery=None, supplier_
     """
     run_transaction(query, (status, expected_delivery, supplier_note, poid))
 
-def update_po_order_proposal(poid, sup_proposed_deliver=None, supplier_note=None):
+def propose_entire_po(poid, sup_proposed_deliver=None, supplier_note=None):
     """
-    Supplier proposes an overall new delivery date/time (SupProposedDeliver),
-    plus an optional note. The Status can remain e.g. 'Proposed' or 'Adjusted' 
-    if your system uses that.
+    Supplier proposes an overall new delivery date/time 
+    and sets the entire PO's Status to 'Proposed'.
+    The existing SupplierNote can also be updated.
     """
     query = """
     UPDATE PurchaseOrders
     SET
+        Status = 'Proposed',
         SupProposedDeliver = COALESCE(%s, SupProposedDeliver),
         SupplierNote = COALESCE(%s, SupplierNote)
     WHERE POID = %s;
@@ -77,11 +78,10 @@ def update_po_order_proposal(poid, sup_proposed_deliver=None, supplier_note=None
 
 def get_purchase_order_items(poid):
     """
-    Retrieves all items from PurchaseOrderItems for the given PO.
-    Includes:
-      - Raw item data (ItemNameEnglish, OrderedQuantity, EstimatedPrice)
-      - Proposed columns (SupProposedQuantity, SupProposedPrice)
-      - Decodes ItemPicture to base64 data URI for inline display.
+    Retrieves items from PurchaseOrderItems, including:
+    - Base64-encoded pictures (converted to data URI for inline display),
+    - OrderedQuantity, EstimatedPrice,
+    - Proposed columns: SupProposedQuantity, SupProposedPrice.
     """
     query = """
     SELECT
@@ -100,7 +100,7 @@ def get_purchase_order_items(poid):
     if not results:
         return []
 
-    # Convert base64 to data:image/... for inline <img> display
+    # Convert raw base64 → data URI
     for item in results:
         if item["itempicture"]:
             try:
@@ -131,10 +131,12 @@ def get_purchase_order_items(poid):
 def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
     """
     Supplier proposes changes for a specific item:
-      - SupProposedQuantity
-      - SupProposedPrice
+    - SupProposedQuantity
+    - SupProposedPrice
+    Also sets the entire PO to 'Proposed', so AMAS sees it's in negotiation.
     """
-    query = """
+    # 1) Update item-level proposal
+    query_item = """
     UPDATE PurchaseOrderItems
     SET
       SupProposedQuantity = COALESCE(%s, SupProposedQuantity),
@@ -142,4 +144,13 @@ def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
     WHERE POID = %s
       AND ItemID = %s;
     """
-    run_transaction(query, (sup_qty, sup_price, poid, itemid))
+    run_transaction(query_item, (sup_qty, sup_price, poid, itemid))
+
+    # 2) Set PO status to 'Proposed'
+    query_po = """
+    UPDATE PurchaseOrders
+    SET 
+      Status = 'Proposed'
+    WHERE POID = %s;
+    """
+    run_transaction(query_po, (poid,))  
