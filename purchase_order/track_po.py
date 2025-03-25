@@ -104,7 +104,7 @@ def show_purchase_orders_page(supplier):
                     sup_proposed_deliver=new_deliv,
                     supplier_note=new_note
                 )
-                st.success("Entire PO proposal saved! Status -> Proposed by Supplier.")
+                st.success("Entire PO proposal saved! Status -> Proposed.")
                 st.rerun()
 
             # Main order-level responses
