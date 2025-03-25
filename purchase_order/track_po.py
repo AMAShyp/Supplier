@@ -89,7 +89,7 @@ def show_purchase_orders_page(supplier):
                             sup_qty=new_qty,
                             sup_price=new_price
                         )
-                        st.success(f"Item {selected_item_id} changes proposed! Status -> Proposed.")
+                        st.success(f"Item {selected_item_id} changes proposed! Status -> Proposed by Supplier.")
                         st.rerun()
 
             # Propose entire PO changes
