@@ -11,10 +11,6 @@ from purchase_order.po_handler import (
 )
 
 def show_purchase_orders_page(supplier):
-    """
-    Displays active POs. Supplier can accept, decline, or propose changes.
-    OFRespondedAt is automatically set upon each supplier response.
-    """
     st.subheader("📦 Track Purchase Orders")
 
     if "decline_po_show_reason" not in st.session_state:
@@ -32,12 +28,6 @@ def show_purchase_orders_page(supplier):
             st.write(f"**Proposed Delivery:** {po.get('supproposeddeliver') or 'N/A'}")
             st.write(f"**Current Status:** {po['status']}")
             st.write(f"**Supplier Note:** {po.get('suppliernote') or ''}")
-            # If the DB has a "OFRespondedAt" column:
-            responded_at = po.get("ofrespondedat")
-            if responded_at:
-                st.write(f"**Responded At:** {responded_at}")
-            else:
-                st.write("**Responded At:** N/A")
 
             items = get_purchase_order_items(po["poid"])
             if items:
@@ -68,13 +58,12 @@ def show_purchase_orders_page(supplier):
                     "OrderedQty", "EstPrice",
                     "SupQty", "SupPrice"
                 ])
-                df_html = df.to_html(escape=False, index=False)
-                st.markdown(df_html, unsafe_allow_html=True)
+                st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-                # Supplier proposes item-level changes for one item
+                # Propose changes for item
                 st.write("**Propose Item-Level Changes**")
                 item_ids = [str(r["ItemID"]) for r in rows]
-                selected_item_id = st.selectbox("Select an item:", item_ids, key=f"sel_item_{po['poid']}")
+                selected_item_id = st.selectbox("Select item to modify:", item_ids, key=f"item_select_{po['poid']}")
 
                 if selected_item_id:
                     selected_item_id = int(selected_item_id)
@@ -82,7 +71,7 @@ def show_purchase_orders_page(supplier):
                     new_qty = c1.number_input("Proposed Qty", min_value=0, value=0, key=f"qty_{po['poid']}_{selected_item_id}")
                     new_price = c2.number_input("Proposed Price", min_value=0.0, value=0.0, step=0.1, key=f"price_{po['poid']}_{selected_item_id}")
 
-                    if st.button("Submit Item Proposal", key=f"item_prop_{po['poid']}_{selected_item_id}"):
+                    if st.button("Submit Item Proposal", key=f"submit_item_{po['poid']}_{selected_item_id}"):
                         update_po_item_proposal(
                             poid=po["poid"],
                             itemid=selected_item_id,
@@ -92,22 +81,20 @@ def show_purchase_orders_page(supplier):
                         st.success(f"Item {selected_item_id} changes proposed! Status -> Proposed by Supplier.")
                         st.rerun()
 
-            # Propose entire PO changes
             st.write("---")
-            st.write("**Propose Overall PO Changes**")
-            new_deliv = st.date_input("SupProposedDeliver", key=f"delv_{po['poid']}")
-            new_note = st.text_area("Supplier Note", key=f"sup_note_{po['poid']}", value=po.get("suppliernote") or "")
+            st.write("**Propose Entire PO Changes**")
+            prop_deliv = st.date_input("SupProposedDeliver", key=f"deliv_{po['poid']}")
+            prop_note = st.text_area("Supplier Note", key=f"note_{po['poid']}", value=po.get("suppliernote") or "")
 
-            if st.button("Save PO Proposal", key=f"save_po_{po['poid']}"):
+            if st.button("Save Entire PO Proposal", key=f"save_po_prop_{po['poid']}"):
                 propose_entire_po(
                     poid=po["poid"],
-                    sup_proposed_deliver=new_deliv,
-                    supplier_note=new_note
+                    sup_proposed_deliver=prop_deliv,
+                    supplier_note=prop_note
                 )
-                st.success("Entire PO proposal saved! Status -> Proposed.")
+                st.success("Entire PO proposal saved! Status => Proposed by Supplier.")
                 st.rerun()
 
-            # Main order-level responses
             st.write("---")
             if po["status"] == "Pending":
                 st.subheader("Respond to Order")
@@ -115,11 +102,10 @@ def show_purchase_orders_page(supplier):
 
                 with cA:
                     if st.button("Accept Order", key=f"accept_{po['poid']}"):
-                        # Optionally set a final delivery date
-                        final_deliv = st.date_input("Final Delivery (Optional)", key=f"fdeliv_{po['poid']}")
+                        final_deliv = st.date_input("Final Delivery (Optional)", key=f"final_deliv_{po['poid']}")
                         update_purchase_order_status(
                             poid=po["poid"],
-                            status="Accepted",
+                            status="Accepted",  # Could be "Accepted by Supplier"
                             expected_delivery=final_deliv or None
                         )
                         st.success("Order Accepted!")
@@ -132,11 +118,11 @@ def show_purchase_orders_page(supplier):
                             st.rerun()
                     else:
                         st.write("**Reason for Declination**")
-                        decline_note = st.text_area("Decline reason:", key=f"decline_nt_{po['poid']}")
+                        decline_note = st.text_area("Decline Reason:", key=f"decline_note_{po['poid']}")
 
                         d1, d2 = st.columns(2)
                         with d1:
-                            if st.button("Confirm Decline", key=f"cnf_decline_{po['poid']}"):
+                            if st.button("Confirm Decline", key=f"confirm_decline_{po['poid']}"):
                                 update_purchase_order_status(
                                     poid=po["poid"],
                                     status="Declined",
@@ -145,20 +131,19 @@ def show_purchase_orders_page(supplier):
                                 st.warning("Order Declined!")
                                 st.session_state["decline_po_show_reason"][po["poid"]] = False
                                 st.rerun()
-
                         with d2:
-                            if st.button("Cancel", key=f"cancel_decl_{po['poid']}"):
+                            if st.button("Cancel", key=f"cancel_decline_{po['poid']}"):
                                 st.session_state["decline_po_show_reason"][po["poid"]] = False
                                 st.rerun()
 
             elif po["status"] == "Accepted":
                 if st.button("Mark as Shipping", key=f"ship_{po['poid']}"):
                     update_purchase_order_status(poid=po["poid"], status="Shipping")
-                    st.info("Order status updated to Shipping.")
+                    st.info("Order marked as Shipping.")
                     st.rerun()
 
             elif po["status"] == "Shipping":
-                if st.button("Mark as Delivered", key=f"delv_{po['poid']}"):
+                if st.button("Mark as Delivered", key=f"delivered_{po['poid']}"):
                     update_purchase_order_status(poid=po["poid"], status="Delivered")
-                    st.success("Order status updated to Delivered.")
+                    st.success("Order marked as Delivered.")
                     st.rerun()
