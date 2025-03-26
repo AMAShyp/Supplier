@@ -5,7 +5,7 @@ from db_handler import run_query, run_transaction
 
 def get_purchase_orders_for_supplier(supplier_id):
     """
-    Retrieves active purchase orders (Pending, Accepted, Shipping)
+    Retrieves only active purchase orders (Pending, Accepted, Shipping)
     from PurchaseOrders for this supplier.
     """
     query = """
@@ -17,7 +17,7 @@ def get_purchase_orders_for_supplier(supplier_id):
         SupProposedDeliver,
         OriginalPOID,
         SupplierNote,
-        OFRespondedAt
+        RespondedAt
     FROM PurchaseOrders
     WHERE SupplierID = %s
       AND Status IN ('Pending', 'Accepted', 'Shipping')
@@ -27,8 +27,7 @@ def get_purchase_orders_for_supplier(supplier_id):
 
 def get_archived_purchase_orders(supplier_id):
     """
-    Retrieves archived or completed purchase orders 
-    (e.g., Declined, Delivered, Completed) for this supplier.
+    Retrieves archived purchase orders (Declined, Delivered, Completed).
     """
     query = """
     SELECT
@@ -39,7 +38,7 @@ def get_archived_purchase_orders(supplier_id):
         SupProposedDeliver,
         OriginalPOID,
         SupplierNote,
-        OFRespondedAt
+        RespondedAt
     FROM PurchaseOrders
     WHERE SupplierID = %s
       AND Status IN ('Declined', 'Delivered', 'Completed')
@@ -49,10 +48,8 @@ def get_archived_purchase_orders(supplier_id):
 
 def update_purchase_order_status(poid, status, expected_delivery=None, supplier_note=None):
     """
-    Updates the main PO status (e.g. Accept/Decline),
-    optionally sets 'ExpectedDelivery' and 'SupplierNote'.
-    
-    Also sets OFRespondedAt = NOW() to log the timestamp of the supplier's action.
+    Updates the unified Status of a purchase order and sets RespondedAt = NOW().
+    Optionally adjusts 'ExpectedDelivery' and 'SupplierNote'.
     """
     query = """
     UPDATE PurchaseOrders
@@ -60,34 +57,33 @@ def update_purchase_order_status(poid, status, expected_delivery=None, supplier_
         Status = %s,
         ExpectedDelivery = COALESCE(%s, ExpectedDelivery),
         SupplierNote = COALESCE(%s, SupplierNote),
-        OFRespondedAt = NOW()
+        RespondedAt = NOW()
     WHERE POID = %s;
     """
     run_transaction(query, (status, expected_delivery, supplier_note, poid))
 
 def propose_entire_po(poid, sup_proposed_deliver=None, supplier_note=None):
     """
-    Supplier proposes an overall new delivery date/time
-    by setting SupProposedDeliver, plus an optional note.
-    Also sets Status = 'Proposed' and logs OFRespondedAt = NOW().
+    Supplier proposes an overall new delivery date/time,
+    sets the PO's status to 'Proposed by Supplier',
+    and updates the respondedAt timestamp.
     """
     query = """
     UPDATE PurchaseOrders
     SET
-        Status = 'Proposed',
+        Status = 'Proposed by Supplier',
         SupProposedDeliver = COALESCE(%s, SupProposedDeliver),
         SupplierNote = COALESCE(%s, SupplierNote),
-        OFRespondedAt = NOW()
+        RespondedAt = NOW()
     WHERE POID = %s;
     """
     run_transaction(query, (sup_proposed_deliver, supplier_note, poid))
 
 def get_purchase_order_items(poid):
     """
-    Retrieves item data from PurchaseOrderItems:
-    - OrderedQuantity, EstimatedPrice
-    - SupProposedQuantity, SupProposedPrice
-    - Decodes item images for inline display.
+    Retrieves items from PurchaseOrderItems, including:
+      - decode ItemPicture to data URI
+      - Proposed columns: SupProposedQuantity, SupProposedPrice
     """
     query = """
     SELECT
@@ -106,7 +102,7 @@ def get_purchase_order_items(poid):
     if not results:
         return []
 
-    # Convert base64 → data URI
+    # Convert each item’s base64 → data URI
     for item in results:
         if item["itempicture"]:
             try:
@@ -136,12 +132,10 @@ def get_purchase_order_items(poid):
 
 def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
     """
-    Supplier proposes item-level changes:
-    - SupProposedQuantity, SupProposedPrice
-    Then sets PO's Status = 'Proposed' and 
-    logs OFRespondedAt = NOW() to track the supplier's action time.
+    Supplier proposes changes for a specific item, sets the PO status to 'Proposed by Supplier',
+    and updates respondedAt to NOW().
     """
-    # 1) Update item-level proposal
+    # 1) Update item-level changes
     query_item = """
     UPDATE PurchaseOrderItems
     SET
@@ -152,12 +146,12 @@ def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
     """
     run_transaction(query_item, (sup_qty, sup_price, poid, itemid))
 
-    # 2) Mark entire PO as 'Proposed' and update OFRespondedAt
+    # 2) Mark entire PO as Proposed by Supplier, updated responded time
     query_po = """
     UPDATE PurchaseOrders
     SET 
-      Status = 'Proposed',
-      OFRespondedAt = NOW()
+      Status = 'Proposed by Supplier',
+      RespondedAt = NOW()
     WHERE POID = %s;
     """
-    run_transaction(query_po, (poid,))
+    run_transaction(query_po, (poid,))  
