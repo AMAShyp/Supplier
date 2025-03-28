@@ -1,47 +1,43 @@
 import streamlit as st
-import io
-from PIL import Image
-from purchase_order.po_handler import get_archived_purchase_orders, get_purchase_order_items
+import pandas as pd
+from purchase_order.po_handler import get_archived_purchase_orders
 
 def show_archived_po_page(supplier):
-    """Displays archived (Declined, Delivered, Completed) purchase orders."""
+    """
+    Displays a simple table of archived purchase orders (Declined, Delivered, Completed,
+    Declined by AMAS, Declined by Supplier) with relevant columns.
+    """
+
     st.subheader("📂 Archived Purchase Orders")
 
     archived_orders = get_archived_purchase_orders(supplier["supplierid"])
     if not archived_orders:
-        st.info("No archived purchase orders.")
+        st.info("No archived purchase orders found.")
         return
 
+    # Build a list of dictionaries for each PO
+    rows = []
     for po in archived_orders:
-        with st.expander(f"PO ID: {po['poid']} | Status: {po['status']}"):
-            st.write(f"**Order Date:** {po['orderdate']}")
-            st.write(f"**Expected Delivery:** {po['expecteddelivery'] or 'Not Set'}")
-            st.write(f"**Status:** {po['status']}")
+        rows.append({
+            "POID": po["poid"],
+            "Status": po["status"],
+            "OrderDate": po["orderdate"],
+            "ExpectedDelivery": po["expecteddelivery"],
+            "RespondedAt": po["respondedat"],
+            "SupProposedDeliver": po["supproposeddeliver"],
+            "OriginalPOID": po["originalpoid"],
+            "SupplierNote": po["suppliernote"] or ""
+        })
 
-            # Show the reason for declining if status=Declined
-            if po["status"] == "Declined":
-                # Display the supplier's note
-                if "suppliernote" in po and po["suppliernote"]:
-                    st.warning(f"**Decline Reason:** {po['suppliernote']}")
+    # Convert to DataFrame
+    df = pd.DataFrame(rows, columns=[
+        "POID", "Status", "OrderDate", "ExpectedDelivery", 
+        "RespondedAt", "SupProposedDeliver", 
+        "OriginalPOID", "SupplierNote"
+    ])
+    st.dataframe(df)
 
-            # Show ordered items
-            items = get_purchase_order_items(po["poid"])
-            if items:
-                st.subheader("Ordered Items")
-                for item in items:
-                    col1, col2 = st.columns([1, 3])
-                    
-                    with col1:
-                        if item["itempicture"]:
-                            try:
-                                image = Image.open(io.BytesIO(item["itempicture"]))
-                                st.image(image, width=100, caption=item["itemnameenglish"])
-                            except Exception:
-                                st.warning("Error displaying image.")
-                        else:
-                            st.write("No Image")
+    st.write("Select a row above for more details if needed. (You can add an Expander, etc.)")
 
-                    with col2:
-                        st.write(f"**{item['itemnameenglish']}**")
-                        st.write(f"**Ordered Quantity:** {item['orderedquantity']}")
-                        st.write(f"**Estimated Price:** {item['estimatedprice'] or 'N/A'}")
+    # If you want to show item details on click, you can add expanders or a select box,
+    # but for now this is a simple table of archived POs only.
