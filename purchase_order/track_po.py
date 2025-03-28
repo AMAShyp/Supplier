@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import datetime
 import io
 from PIL import Image
 
@@ -14,44 +15,42 @@ from purchase_order.po_handler import (
 def show_purchase_orders_page(supplier):
     """
     Displays each active PO with 3 main buttons (Accept, Modify, Decline).
-    Only shows the 'Modify Order' form after the user clicks 'Modify Order'.
-
-    The Proposed Delivery Date is pre-filled with the original Expected Delivery date/time if present.
+    Shows a form after clicking 'Modify Order' where the user can:
+      - Propose item-level changes (quantity, price)
+      - Propose a new overall delivery (date + time)
+      - Provide a supplier note
+    The Proposed Delivery is stored as a full datetime object (date + time).
     """
 
     st.subheader("📦 Track Purchase Orders")
 
-    # Track whether we've opened the 'Decline reason' text area
     if "decline_po_show_reason" not in st.session_state:
         st.session_state["decline_po_show_reason"] = {}
 
-    # Track whether we've opened the 'Modify Order' section
     if "modify_po_show_form" not in st.session_state:
         st.session_state["modify_po_show_form"] = {}
 
-    # 1) Fetch active POs
+    # Fetch active POs
     purchase_orders = get_purchase_orders_for_supplier(supplier["supplierid"])
     if not purchase_orders:
         st.info("No active purchase orders.")
         return
 
     for po in purchase_orders:
-        po_key = po["poid"]  # unique key for session state
+        po_key = po["poid"]
 
         with st.expander(f"PO ID: {po_key} | Status: {po['status']}"):
-            # Basic PO info
             st.write(f"**Order Date:** {po['orderdate']}")
             st.write(f"**Expected Delivery:** {po['expecteddelivery'] or 'Not Set'}")
             st.write(f"**Current Status:** {po['status']}")
-            st.write(f"**Supplier Note (if any):** {po.get('suppliernote') or ''}")
+            st.write(f"**Supplier Note:** {po.get('suppliernote') or ''}")
 
-            # Show items in read-only table
+            # Show items read-only
             items = get_purchase_order_items(po_key)
             if items:
                 st.subheader("Ordered Items")
                 rows = []
                 for it in items:
-                    # Build image HTML
                     if it["itempicture"]:
                         img_html = f'<img src="{it["itempicture"]}" width="50" />'
                     else:
@@ -85,11 +84,17 @@ def show_purchase_orders_page(supplier):
                 # Accept Order
                 with c1:
                     if st.button("Accept Order", key=f"accept_{po_key}"):
-                        final_deliv = st.date_input("Final Delivery (Optional)", key=f"deliv_{po_key}")
+                        final_deliv_date = st.date_input("Final Delivery (Date)", key=f"final_date_{po_key}")
+                        final_deliv_time = st.time_input("Final Delivery (Time)", key=f"final_time_{po_key}")
+                        # Combine them into a datetime
+                        final_deliv = datetime.datetime.combine(final_deliv_date, final_deliv_time)
+                        
+                        # if user doesn't actually want to set a time, they can ignore, 
+                        # or we handle logic if they'd prefer None
                         update_purchase_order_status(
                             poid=po_key,
                             status="Accepted",
-                            expected_delivery=final_deliv or None
+                            expected_delivery=final_deliv
                         )
                         st.success("Order Accepted!")
                         st.rerun()
@@ -97,25 +102,32 @@ def show_purchase_orders_page(supplier):
                 # Modify Order
                 with c2:
                     if not st.session_state["modify_po_show_form"].get(po_key, False):
-                        # Button to open the Modify form
                         if st.button("Modify Order", key=f"modify_{po_key}"):
                             st.session_state["modify_po_show_form"][po_key] = True
                             st.rerun()
                     else:
-                        # The Modify form is open
                         st.subheader("Propose Changes to This Order")
 
-                        # Pre-fill Proposed Delivery with existing 'ExpectedDelivery'
-                        default_deliv = None
+                        # If we have an existing date/time in ExpectedDelivery, parse them
+                        default_date = None
+                        default_time = datetime.time(0, 0)  # midnight
                         if po.get("expecteddelivery"):
-                            default_deliv = po["expecteddelivery"]  # Streamlit can handle date/datetime
+                            # expectedDelivery might be a datetime
+                            dt_obj = po["expecteddelivery"]
+                            if isinstance(dt_obj, datetime.datetime):
+                                default_date = dt_obj.date()
+                                default_time = dt_obj.time()
 
-                        prop_deliv = st.date_input(
+                        prop_deliv_date = st.date_input(
                             "Proposed Delivery Date",
-                            value=default_deliv,
-                            key=f"prop_deliv_{po_key}"
+                            value=default_date,
+                            key=f"prop_deliv_date_{po_key}"
                         )
-
+                        prop_deliv_time = st.time_input(
+                            "Proposed Delivery Time",
+                            value=default_time,
+                            key=f"prop_deliv_time_{po_key}"
+                        )
                         proposed_note = st.text_area(
                             "Supplier Note (Entire PO)",
                             key=f"prop_note_{po_key}",
@@ -129,19 +141,19 @@ def show_purchase_orders_page(supplier):
                                 i_id = it["itemid"]
                                 st.write(f"Item {i_id}: {it['itemnameenglish']}")
                                 colA, colB = st.columns(2)
-                                cur_qty = int(it.get("supproposedquantity") or 0)
-                                cur_price = float(it.get("supproposedprice") or 0.0)
+                                cur_sup_qty = int(it.get("supproposedquantity") or 0)
+                                cur_sup_price = float(it.get("supproposedprice") or 0.0)
 
                                 new_qty = colA.number_input(
                                     f"Proposed Qty (Item {i_id})",
                                     min_value=0,
-                                    value=cur_qty,
+                                    value=cur_sup_qty,
                                     key=f"qty_{po_key}_{i_id}"
                                 )
                                 new_price = colB.number_input(
                                     f"Proposed Price (Item {i_id})",
                                     min_value=0.0,
-                                    value=cur_price,
+                                    value=cur_sup_price,
                                     step=0.1,
                                     key=f"price_{po_key}_{i_id}"
                                 )
@@ -157,15 +169,18 @@ def show_purchase_orders_page(supplier):
                                     sup_qty=qty_val,
                                     sup_price=price_val
                                 )
+                            # 2) Combine date+time
+                            combined_dt = None
+                            if prop_deliv_date:
+                                combined_dt = datetime.datetime.combine(prop_deliv_date, prop_deliv_time)
 
-                            # 2) Propose entire PO
+                            # 3) Propose entire PO
                             propose_entire_po(
                                 poid=po_key,
-                                sup_proposed_deliver=prop_deliv,
+                                sup_proposed_deliver=combined_dt,
                                 supplier_note=proposed_note
                             )
                             st.success("PO Proposed Successfully! Status => Proposed by Supplier.")
-                            # close the form
                             st.session_state["modify_po_show_form"][po_key] = False
                             st.rerun()
 
@@ -195,7 +210,7 @@ def show_purchase_orders_page(supplier):
                                 st.session_state["decline_po_show_reason"][po_key] = False
                                 st.rerun()
 
-            # If the PO is 'Accepted', 'Shipping', etc. handle normal flow
+            # If status is not "Pending", handle normal flow
             elif po["status"] == "Accepted":
                 if st.button("Mark as Shipping", key=f"ship_{po_key}"):
                     update_purchase_order_status(poid=po_key, status="Shipping")
