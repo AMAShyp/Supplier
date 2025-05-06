@@ -1,164 +1,126 @@
-import base64
-import io
+# purchase_order/po_handler.py  (updated)
+
+import base64, io, datetime
 from PIL import Image
 from db_handler import run_query, run_transaction
 
+
+# ----------------------------------------------------------------------
+# PO‑level queries (unchanged)
+# ----------------------------------------------------------------------
+
 def get_purchase_orders_for_supplier(supplier_id):
-    """
-    Retrieves only active purchase orders (Pending, Accepted, Shipping)
-    from PurchaseOrders for this supplier.
-    """
     query = """
-    SELECT 
-        POID,
-        OrderDate,
-        ExpectedDelivery,
-        Status,
-        SupProposedDeliver,
-        OriginalPOID,
-        SupplierNote,
-        RespondedAt
+    SELECT POID, OrderDate, ExpectedDelivery, Status,
+           SupProposedDeliver, OriginalPOID, SupplierNote, RespondedAt
     FROM PurchaseOrders
     WHERE SupplierID = %s
-      AND Status IN ('Pending', 'Accepted', 'Shipping')
+      AND Status IN ('Pending','Accepted','Shipping')
     ORDER BY OrderDate DESC;
     """
     return run_query(query, (supplier_id,))
+
 
 def get_archived_purchase_orders(supplier_id):
-    """
-    Retrieves archived purchase orders for this supplier, i.e.
-    Declined (any reason), Delivered, Completed, Declined by AMAS, Declined by Supplier.
-    """
     query = """
-    SELECT
-        POID,
-        OrderDate,
-        ExpectedDelivery,
-        Status,
-        SupProposedDeliver,
-        OriginalPOID,
-        SupplierNote,
-        RespondedAt
+    SELECT POID, OrderDate, ExpectedDelivery, Status,
+           SupProposedDeliver, OriginalPOID, SupplierNote, RespondedAt
     FROM PurchaseOrders
     WHERE SupplierID = %s
-      AND Status IN (
-        'Declined',
-        'Declined by AMAS',
-        'Declined by Supplier',
-        'Delivered',
-        'Completed'
-      )
+      AND Status IN ('Declined','Declined by AMAS','Declined by Supplier',
+                     'Delivered','Completed')
     ORDER BY OrderDate DESC;
     """
     return run_query(query, (supplier_id,))
 
-def update_purchase_order_status(poid, status, expected_delivery=None, supplier_note=None):
-    """
-    Updates the unified Status of a purchase order and sets RespondedAt = NOW().
-    Optionally adjusts 'ExpectedDelivery' and 'SupplierNote'.
-    """
+
+def update_purchase_order_status(poid, status,
+                                 expected_delivery=None, supplier_note=None):
     query = """
     UPDATE PurchaseOrders
-    SET
-        Status = %s,
+    SET Status = %s,
         ExpectedDelivery = COALESCE(%s, ExpectedDelivery),
-        SupplierNote = COALESCE(%s, SupplierNote),
-        RespondedAt = NOW()
+        SupplierNote     = COALESCE(%s, SupplierNote),
+        RespondedAt      = NOW()
     WHERE POID = %s;
     """
     run_transaction(query, (status, expected_delivery, supplier_note, poid))
 
+
 def propose_entire_po(poid, sup_proposed_deliver=None, supplier_note=None):
-    """
-    Supplier proposes an overall new delivery date/time,
-    sets the PO's status to 'Proposed by Supplier',
-    and updates the respondedAt timestamp.
-    """
     query = """
     UPDATE PurchaseOrders
-    SET
-        Status = 'Proposed by Supplier',
+    SET Status            = 'Proposed by Supplier',
         SupProposedDeliver = COALESCE(%s, SupProposedDeliver),
-        SupplierNote = COALESCE(%s, SupplierNote),
-        RespondedAt = NOW()
+        SupplierNote       = COALESCE(%s, SupplierNote),
+        RespondedAt        = NOW()
     WHERE POID = %s;
     """
     run_transaction(query, (sup_proposed_deliver, supplier_note, poid))
 
+
+# ----------------------------------------------------------------------
+# Item‑level helpers  (NOW WITH SupExpirationDate)
+# ----------------------------------------------------------------------
+
 def get_purchase_order_items(poid):
-    """
-    Retrieves items from PurchaseOrderItems, including:
-      - decode ItemPicture to data URI
-      - Proposed columns: SupProposedQuantity, SupProposedPrice
-    """
+    """Return list of dicts – each item now includes 'supexpirationdate'."""
     query = """
-    SELECT
-        i.ItemID,
-        i.ItemNameEnglish,
-        encode(i.ItemPicture, 'base64') AS ItemPicture,
-        poi.OrderedQuantity,
-        poi.EstimatedPrice,
-        poi.SupProposedQuantity,
-        poi.SupProposedPrice
+    SELECT i.ItemID,
+           i.ItemNameEnglish,
+           encode(i.ItemPicture,'base64') AS ItemPicture,
+           poi.OrderedQuantity,
+           poi.EstimatedPrice,
+           poi.SupProposedQuantity,
+           poi.SupProposedPrice,
+           poi.SupExpirationDate          -- NEW
     FROM PurchaseOrderItems poi
     JOIN Item i ON poi.ItemID = i.ItemID
     WHERE poi.POID = %s;
     """
-    results = run_query(query, (poid,))
-    if not results:
+    rows = run_query(query, (poid,))
+    if not rows:
         return []
 
-    # Convert each item’s base64 → data URI
-    for item in results:
-        if item["itempicture"]:
+    # convert pictures to data‑URI
+    for itm in rows:
+        raw = itm["itempicture"]
+        if raw:
             try:
-                raw_b64 = item["itempicture"]
-                image_bytes = base64.b64decode(raw_b64)
-                img = Image.open(io.BytesIO(image_bytes))
-                image_format = img.format or "PNG"
-
-                buffer = io.BytesIO()
-                img.save(buffer, format=image_format)
-                reencoded_b64 = base64.b64encode(buffer.getvalue()).decode()
-
-                if image_format.lower() in ["jpeg", "jpg"]:
-                    mime_type = "jpeg"
-                elif image_format.lower() == "png":
-                    mime_type = "png"
-                else:
-                    mime_type = "png"
-
-                item["itempicture"] = f"data:image/{mime_type};base64,{reencoded_b64}"
+                img_bytes = base64.b64decode(raw)
+                img = Image.open(io.BytesIO(img_bytes))
+                fmt = (img.format or "PNG").lower()
+                buf = io.BytesIO(); img.save(buf, format=img.format or "PNG")
+                itm["itempicture"] = (
+                    f"data:image/{'jpeg' if fmt in ('jpeg','jpg') else 'png'};"
+                    f"base64,{base64.b64encode(buf.getvalue()).decode()}"
+                )
             except Exception:
-                item["itempicture"] = None
-        else:
-            item["itempicture"] = None
+                itm["itempicture"] = None
+    return rows
 
-    return results
 
-def update_po_item_proposal(poid, itemid, sup_qty=None, sup_price=None):
+def update_po_item_proposal(
+    poid, itemid, sup_qty=None, sup_price=None, sup_exp_date=None
+):
     """
-    Supplier proposes changes for a specific item, sets the PO status to 'Proposed by Supplier',
-    and updates respondedAt to NOW().
+    Store supplier‑proposed qty, price, and expiration date for one item,
+    then mark entire PO as 'Proposed by Supplier' + RespondedAt = NOW().
     """
-    # 1) Update item-level changes
     query_item = """
     UPDATE PurchaseOrderItems
-    SET
-      SupProposedQuantity = COALESCE(%s, SupProposedQuantity),
-      SupProposedPrice = COALESCE(%s, SupProposedPrice)
-    WHERE POID = %s
+    SET SupProposedQuantity = COALESCE(%s, SupProposedQuantity),
+        SupProposedPrice    = COALESCE(%s, SupProposedPrice),
+        SupExpirationDate   = COALESCE(%s, SupExpirationDate)
+    WHERE POID   = %s
       AND ItemID = %s;
     """
-    run_transaction(query_item, (sup_qty, sup_price, poid, itemid))
+    run_transaction(query_item, (sup_qty, sup_price, sup_exp_date, poid, itemid))
 
-    # 2) Mark entire PO as Proposed by Supplier, updated responded time
     query_po = """
     UPDATE PurchaseOrders
-    SET 
-      Status = 'Proposed by Supplier',
-      RespondedAt = NOW()
+    SET Status      = 'Proposed by Supplier',
+        RespondedAt = NOW()
     WHERE POID = %s;
     """
-    run_transaction(query_po, (poid,))  
+    run_transaction(query_po, (poid,))
