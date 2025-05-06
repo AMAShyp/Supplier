@@ -1,193 +1,203 @@
+# purchase_order/track_po.py
 import streamlit as st
 import pandas as pd
 import datetime
-import io
-from PIL import Image
-
 from purchase_order.po_handler import (
     get_purchase_orders_for_supplier,
     get_purchase_order_items,
     update_po_item_proposal,
     update_purchase_order_status,
-    propose_entire_po
+    propose_entire_po,
 )
 
-# … [imports and heading unchanged] …
-
+# ----------------------------------------------------------------------
 def show_purchase_orders_page(supplier):
+    """Active PO page with Accept / Modify / Decline.
+       * Modify form: qty, price, expiration, note, delivery → 1 submit.
+       * Accept flow: asks for per‑item expiration before final confirm.
+    """
+
     st.subheader("📦 Track Purchase Orders")
 
-    # Session‑state helpers
-    if "decline_po_show_reason" not in st.session_state:
-        st.session_state["decline_po_show_reason"] = {}
-    if "modify_po_show_form" not in st.session_state:
-        st.session_state["modify_po_show_form"] = {}
+    # session helpers
+    st.session_state.setdefault("decline_po_show_reason", {})
+    st.session_state.setdefault("modify_po_show_form", {})
+    st.session_state.setdefault("accept_po_show_exp", {})   # NEW
 
-    purchase_orders = get_purchase_orders_for_supplier(supplier["supplierid"])
-    if not purchase_orders:
+    po_list = get_purchase_orders_for_supplier(supplier["supplierid"])
+    if not po_list:
         st.info("No active purchase orders.")
         return
 
-    for po in purchase_orders:
-        po_key = po["poid"]
+    for po in po_list:
+        poid = po["poid"]
 
-        with st.expander(f"PO ID: {po_key} | Status: {po['status']}"):
+        with st.expander(f"PO ID: {poid} | Status: {po['status']}"):
+            # ----- Basic info
             st.write(f"**Order Date:** {po['orderdate']}")
-            st.write(f"**Expected Delivery:** {po['expecteddelivery'] or 'Not Set'}")
+            st.write(f"**Expected Delivery:** {po['expecteddeliver
+y'] or 'Not Set'}")
             st.write(f"**Current Status:** {po['status']}")
             st.write(f"**Supplier Note:** {po.get('suppliernote') or ''}")
 
-            # ---------------- Item list (read‑only) ----------------
-            items = get_purchase_order_items(po_key)
+            # ----- Items table (read‑only)
+            items = get_purchase_order_items(poid)
             if items:
-                st.subheader("Ordered Items")
                 rows = []
                 for it in items:
-                    img_html = (
-                        f'<img src="{it["itempicture"]}" width="50" />'
-                        if it["itempicture"]
-                        else "No Image"
-                    )
-
                     rows.append({
                         "ItemID": it["itemid"],
-                        "Picture": img_html,
                         "Item Name": it["itemnameenglish"],
                         "OrderedQty": it["orderedquantity"],
-                        "EstPrice": it["estimatedprice"] or "N/A",
-                        "SupQty": it.get("supproposedquantity") or "",
-                        "SupPrice": it.get("supproposedprice") or "",
+                        "EstPrice":  it["estimatedprice"] or "N/A",
+                        "SupQty":    it.get("supproposedquantity") or "",
+                        "SupPrice":  it.get("supproposedprice") or "",
+                        "SupExpDate": it.get("supexpirationdate") or "",
                     })
-
-                df = pd.DataFrame(rows, columns=[
-                    "ItemID", "Picture", "Item Name",
-                    "OrderedQty", "EstPrice", "SupQty", "SupPrice"
-                ])
-                st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+                st.dataframe(pd.DataFrame(rows))
             else:
                 st.info("No items found for this PO.")
 
-            # ============ ACTION BUTTONS (Pending only) ============
+            # ==================================================================
+            #                       PENDING  ACTIONS
+            # ==================================================================
             if po["status"] == "Pending":
-                col1, col2, col3 = st.columns(3)
+                c1, c2, c3 = st.columns(3)
 
-                # ---------- Accept ----------
-                with col1:
-                    if st.button("Accept Order", key=f"accept_{po_key}"):
-                        d = st.date_input("Final Delivery (Date)", key=f"final_date_{po_key}")
-                        t = st.time_input("Final Delivery (Time)", key=f"final_time_{po_key}")
-                        update_purchase_order_status(
-                            poid=po_key,
-                            status="Accepted",
-                            expected_delivery=datetime.datetime.combine(d, t)
+                # ---------------- Accept Order ----------------
+                with c1:
+                    if not st.session_state["accept_po_show_exp"].get(poid):
+                        if st.button("Accept Order", key=f"accept_{poid}"):
+                            st.session_state["accept_po_show_exp"][poid] = True
+                            st.rerun()
+                    else:
+                        st.subheader("Enter Expiration Dates then Confirm Accept")
+                        exp_dates = {}
+                        for it in items:
+                            iid = it["itemid"]
+                            default_exp = (
+                                it.get("supexpirationdate") or datetime.date.today()
+                            )
+                            exp_dates[iid] = st.date_input(
+                                f"Item {iid} Expiration",
+                                value=default_exp,
+                                key=f"acc_exp_{poid}_{iid}",
+                            )
+
+                        # final delivery
+                        deliv_date = st.date_input(
+                            "Final Delivery Date", key=f"acc_date_{poid}"
                         )
-                        st.success("Order Accepted!")
-                        st.rerun()
+                        deliv_time = st.time_input(
+                            "Final Delivery Time", key=f"acc_time_{poid}"
+                        )
+                        if st.button("Confirm Accept", key=f"acc_confirm_{poid}"):
+                            # save each item exp date
+                            for iid, ed in exp_dates.items():
+                                update_po_item_proposal(
+                                    poid, iid, sup_qty=None, sup_price=None, sup_exp_date=ed
+                                )
+                            # update PO status
+                            dt_final = datetime.datetime.combine(deliv_date, deliv_time)
+                            update_purchase_order_status(
+                                poid, "Accepted", expected_delivery=dt_final
+                            )
+                            st.success("PO Accepted with expiration dates saved.")
+                            st.session_state["accept_po_show_exp"][poid] = False
+                            st.rerun()
 
-                # ---------- Modify ----------
-                with col2:
-                    if not st.session_state["modify_po_show_form"].get(po_key, False):
-                        if st.button("Modify Order", key=f"modify_{po_key}"):
-                            st.session_state["modify_po_show_form"][po_key] = True
+                # ---------------- Modify Order ----------------
+                with c2:
+                    if not st.session_state["modify_po_show_form"].get(poid):
+                        if st.button("Modify Order", key=f"modify_{poid}"):
+                            st.session_state["modify_po_show_form"][poid] = True
                             st.rerun()
                     else:
                         st.subheader("Propose Changes to This Order")
 
-                        # default date/time from ExpectedDelivery
                         def_date, def_time = None, datetime.time(0, 0)
                         if isinstance(po.get("expecteddelivery"), datetime.datetime):
                             def_date = po["expecteddelivery"].date()
                             def_time = po["expecteddelivery"].time()
 
-                        with st.form(key=f"modify_form_{po_key}"):
-                            prop_date = st.date_input(
-                                "Proposed Delivery Date",
-                                value=def_date,
-                                key=f"prop_date_{po_key}"
+                        with st.form(key=f"mod_form_{poid}"):
+                            p_date = st.date_input(
+                                "Proposed Delivery Date", value=def_date,
+                                key=f"mod_pdate_{poid}"
                             )
-                            prop_time = st.time_input(
-                                "Proposed Delivery Time",
-                                value=def_time,
-                                key=f"prop_time_{po_key}"
+                            p_time = st.time_input(
+                                "Proposed Delivery Time", value=def_time,
+                                key=f"mod_ptime_{poid}"
                             )
-                            prop_note = st.text_area(
-                                "Supplier Note (Entire PO)",
-                                key=f"prop_note_{po_key}",
-                                value=po.get("suppliernote") or ""
+                            p_note = st.text_area(
+                                "Supplier Note", value=po.get("suppliernote") or "",
+                                key=f"mod_pnote_{poid}"
                             )
 
-                            st.write("**Item‑Level Changes**")
-                            item_proposals = {}
+                            item_changes = {}
                             for it in items:
-                                i_id = it["itemid"]
-                                cur_qty  = int(
-                                    it.get("supproposedquantity")
-                                    or it["orderedquantity"]      # ← default to ordered
-                                )
-                                cur_price = float(
-                                    it.get("supproposedprice")
-                                    or (it["estimatedprice"] or 0)  # ← default to est. price
-                                )
+                                iid   = it["itemid"]
+                                base_qty   = it.get("supproposedquantity") or it["orderedquantity"]
+                                base_price = it.get("supproposedprice")    or (it["estimatedprice"] or 0)
+                                base_exp   = it.get("supexpirationdate")  or datetime.date.today()
 
-                                st.write(f"Item {i_id}: {it['itemnameenglish']}")
-                                cA, cB = st.columns(2)
-                                qty_in = cA.number_input(
-                                    f"Proposed Qty (Item {i_id})",
-                                    min_value=0,
-                                    value=cur_qty,
-                                    key=f"qty_{po_key}_{i_id}"
-                                )
-                                price_in = cB.number_input(
-                                    f"Proposed Price (Item {i_id})",
-                                    min_value=0.0,
-                                    value=cur_price,
-                                    step=0.1,
-                                    key=f"price_{po_key}_{i_id}"
-                                )
-                                item_proposals[i_id] = (qty_in, price_in)
+                                st.write(f"Item {iid}: {it['itemnameenglish']}")
+                                cA, cB, cC = st.columns(3)
+                                qty_in = cA.number_input("Qty", min_value=0,
+                                                         value=int(base_qty),
+                                                         key=f"mod_qty_{poid}_{iid}")
+                                prc_in = cB.number_input("Price", min_value=0.0,
+                                                         value=float(base_price),
+                                                         step=0.1,
+                                                         key=f"mod_prc_{poid}_{iid}")
+                                exp_in = cC.date_input("Expiration", value=base_exp,
+                                                       key=f"mod_exp_{poid}_{iid}")
+                                item_changes[iid] = (qty_in, prc_in, exp_in)
                                 st.write("---")
 
                             if st.form_submit_button("Submit Propose"):
-                                for iid, (q, p) in item_proposals.items():
-                                    update_po_item_proposal(po_key, iid, q, p)
+                                for iid, (q, p, e) in item_changes.items():
+                                    update_po_item_proposal(poid, iid, q, p, e)
 
-                                combined_dt = datetime.datetime.combine(prop_date, prop_time)
-                                propose_entire_po(po_key, combined_dt, prop_note)
-
-                                st.success("PO Proposed Successfully! Status => Proposed by Supplier.")
-                                st.session_state["modify_po_show_form"][po_key] = False
+                                propose_entire_po(
+                                    poid,
+                                    sup_proposed_deliver=datetime.datetime.combine(p_date, p_time),
+                                    supplier_note=p_note,
+                                )
+                                st.success("Proposal sent (status = Proposed by Supplier).")
+                                st.session_state["modify_po_show_form"][poid] = False
                                 st.rerun()
 
-                # ---------- Decline ----------
-                with col3:
-                    if not st.session_state["decline_po_show_reason"].get(po_key, False):
-                        if st.button("Decline Order", key=f"decline_{po_key}"):
-                            st.session_state["decline_po_show_reason"][po_key] = True
+                # ---------------- Decline Order ----------------
+                with c3:
+                    if not st.session_state["decline_po_show_reason"].get(poid):
+                        if st.button("Decline Order", key=f"decl_{poid}"):
+                            st.session_state["decline_po_show_reason"][poid] = True
                             st.rerun()
                     else:
-                        st.write("**Reason for Declination**")
-                        dec_note = st.text_area("Decline Reason:", key=f"dec_note_{po_key}")
-                        d1, d2 = st.columns(2)
-                        with d1:
-                            if st.button("Confirm Decline", key=f"confirm_dec_{po_key}"):
-                                update_purchase_order_status(po_key, "Declined", supplier_note=dec_note)
-                                st.warning("Order Declined!")
-                                st.session_state["decline_po_show_reason"][po_key] = False
+                        dec_reason = st.text_area("Reason:", key=f"dec_note_{poid}")
+                        dA, dB = st.columns(2)
+                        with dA:
+                            if st.button("Confirm Decline", key=f"dec_ok_{poid}"):
+                                update_purchase_order_status(poid, "Declined", supplier_note=dec_reason)
+                                st.warning("Order Declined.")
+                                st.session_state["decline_po_show_reason"][poid] = False
                                 st.rerun()
-                        with d2:
-                            if st.button("Cancel", key=f"cancel_dec_{po_key}"):
-                                st.session_state["decline_po_show_reason"][po_key] = False
+                        with dB:
+                            if st.button("Cancel", key=f"dec_cancel_{poid}"):
+                                st.session_state["decline_po_show_reason"][poid] = False
                                 st.rerun()
 
-            # ===== Additional statuses =====
+            # ==================================================================
+            #  Accepted → Shipping → Delivered buttons remain unchanged
+            # ==================================================================
             elif po["status"] == "Accepted":
-                if st.button("Mark as Shipping", key=f"ship_{po_key}"):
-                    update_purchase_order_status(po_key, "Shipping")
+                if st.button("Mark as Shipping", key=f"ship_{poid}"):
+                    update_purchase_order_status(poid, "Shipping")
                     st.info("Order marked as Shipping.")
                     st.rerun()
-
             elif po["status"] == "Shipping":
-                if st.button("Mark as Delivered", key=f"delivered_{po_key}"):
-                    update_purchase_order_status(po_key, "Delivered")
+                if st.button("Mark as Delivered", key=f"deliv_{poid}"):
+                    update_purchase_order_status(poid, "Delivered")
                     st.success("Order marked as Delivered.")
                     st.rerun()
