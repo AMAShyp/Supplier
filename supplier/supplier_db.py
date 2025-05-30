@@ -1,6 +1,6 @@
+# supplier/supplier_handler.py
 from db_handler import run_query
 
-# List of required fields with their labels
 SUPPLIER_FIELDS = {
     "suppliername": "Supplier Name",
     "suppliertype": "Supplier Type",
@@ -15,44 +15,31 @@ SUPPLIER_FIELDS = {
 }
 
 def get_supplier_by_email(email):
-    """Retrieve supplier record by email."""
     query = "SELECT * FROM supplier WHERE contactemail = %s"
     result = run_query(query, (email,))
     return result[0] if result else None
 
 def create_supplier(contactemail):
-    """Insert a new supplier record with minimal data (empty name)."""
     query = """
     INSERT INTO supplier (suppliername, contactemail)
     VALUES (%s, %s)
     RETURNING supplierid, suppliername, contactemail;
     """
-    params = ("", contactemail)  # 🔥 Supplier name left empty for user input
+    params = ("", contactemail)
     result = run_query(query, params)
     return result[0] if result else None
 
 def get_or_create_supplier(contactemail):
-    """Fetch supplier by email; create if not exists."""
     supplier = get_supplier_by_email(contactemail)
-    return supplier if supplier else create_supplier(contactemail)
+    return supplier or create_supplier(contactemail)
 
 def get_missing_fields(supplier):
-    """
-    Identify missing required fields for a supplier.
-    Ensures we detect `None` or empty values.
-    """
-    missing_fields = [
+    return [
         key for key, label in SUPPLIER_FIELDS.items()
-        if not supplier.get(key) or supplier[key] == ""
+        if not supplier.get(key)
     ]
-    return missing_fields
 
 def get_supplier_form_structure():
-    """
-    Returns a structured dictionary defining the supplier form.
-    - Defines the labels for each field.
-    - Defines input types (text, select, etc.).
-    """
     return {
         "suppliertype": {"label": "Supplier Type", "type": "select", "options": ["Manufacturer", "Distributor", "Retailer", "Other"]},
         "country": {"label": "Country", "type": "text"},
@@ -66,7 +53,6 @@ def get_supplier_form_structure():
     }
 
 def save_supplier_details(supplierid, form_data):
-    """Updates supplier details based on submitted form data."""
     query = """
     UPDATE supplier
     SET
@@ -83,7 +69,7 @@ def save_supplier_details(supplierid, form_data):
     WHERE supplierid = %s
     """
     params = (
-        form_data.get("suppliername", ""),  # 🔥 Now saves user-entered name
+        form_data.get("suppliername", ""),
         form_data.get("suppliertype", ""),
         form_data.get("country", ""),
         form_data.get("city", ""),
