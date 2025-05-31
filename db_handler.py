@@ -1,7 +1,7 @@
 # db_handler.py
 import streamlit as st
 import psycopg2
-from psycopg2 import OperationalError
+from psycopg2 import OperationalError, extensions   # ← add extensions here
 from psycopg2.extras import RealDictCursor
 
 # ─────────────────────────────────────────────────────────────
