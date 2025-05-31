@@ -4,13 +4,14 @@ Business-logic helpers for Supplier profile CRUD + country/city look-ups.
 """
 
 from typing import Dict, List
-import pycountry  # requirements.txt ⇒ pycountry==23.12.11
+import pycountry
+import psycopg2       # for error inspection
 from db_handler import get_db
 
-db = get_db()  # cached DatabaseManager singleton
+db = get_db()         # cached DatabaseManager singleton
 
 # ───────────────────────────────────────────────────────────────
-# Static metadata: label shown in the profile form
+# Static label map
 # ───────────────────────────────────────────────────────────────
 SUPPLIER_FIELDS: Dict[str, str] = {
     "suppliername":  "Supplier Name",
@@ -29,17 +30,24 @@ SUPPLIER_FIELDS: Dict[str, str] = {
 # Country / city helpers
 # ───────────────────────────────────────────────────────────────
 def list_all_countries() -> List[str]:
-    """Return ≈250 ISO country names alphabetically."""
-    return sorted(country.name for country in pycountry.countries)
+    """Return ≈250 ISO country names, alphabetically."""
+    return sorted(c.name for c in pycountry.countries)
 
 def list_cities_for_country(country: str) -> List[str]:
     """
-    Pull city names from a lookup table (CREATE TABLE cities (country, city)).
-    Falls back to [] if the country isn’t present.
+    Fetch city names from helper table `cities`.  
+    If the table doesn't exist (or the country has no rows) → return [].
     """
     q = "SELECT city FROM cities WHERE country = %s ORDER BY city"
-    rows = db.fetch(q, (country,))
-    return [r["city"] for r in rows] if rows else []
+    try:
+        rows = db.fetch(q, (country,))
+        return [r["city"] for r in rows] if rows else []
+    except psycopg2.errors.UndefinedTable:
+        # first run: table hasn't been created yet ⇒ silently ignore
+        return []
+    except Exception:
+        # any other DB issue ⇒ degrade gracefully
+        return []
 
 # ───────────────────────────────────────────────────────────────
 # CRUD helpers
@@ -59,17 +67,13 @@ def create_supplier(contactemail: str) -> Dict:
 def get_or_create_supplier(contactemail: str) -> Dict:
     return get_supplier_by_email(contactemail) or create_supplier(contactemail)
 
-def get_missing_fields(supplier_row: Dict) -> List[str]:
-    return [k for k in SUPPLIER_FIELDS if not supplier_row.get(k)]
+def get_missing_fields(row: Dict) -> List[str]:
+    return [k for k in SUPPLIER_FIELDS if not row.get(k)]
 
 # ───────────────────────────────────────────────────────────────
-# Form-schema handed to Streamlit UI
+# Form schema for Streamlit UI
 # ───────────────────────────────────────────────────────────────
 def get_supplier_form_structure() -> Dict[str, Dict]:
-    """
-    Metadata for dynamic form rendering:
-    {field_key: {"label": str, "type": str, "options": list[str]|None}}
-    """
     return {
         "suppliertype": {"label": "Supplier Type", "type": "select",
                          "options": ["Manufacturer", "Distributor",
@@ -85,7 +89,7 @@ def get_supplier_form_structure() -> Dict[str, Dict]:
         "bankdetails":  {"label": "Bank Details", "type": "textarea"},
     }
 
-# optional legacy alias
+# legacy alias
 get_form_structure = get_supplier_form_structure
 
 # ───────────────────────────────────────────────────────────────
