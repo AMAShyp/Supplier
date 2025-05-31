@@ -1,47 +1,53 @@
-# db_handler.py
+# db_handler.py (updated for Supplier App)
 import streamlit as st
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2 import OperationalError
+import pandas as pd
 
-NEON_DSN = st.secrets["neon"]["dsn"]
+@st.cache_resource(show_spinner=False)
+def get_conn(dsn: str):
+    """Create (once) and return a live PostgreSQL connection."""
+    return psycopg2.connect(dsn)
 
-def get_connection():
-    try:
-        conn = psycopg2.connect(NEON_DSN, cursor_factory=RealDictCursor)
-        return conn
-    except Exception as e:
-        st.error(f"🚨 Database Connection Error: {e}")
-        raise
+class DatabaseManager:
+    def __init__(self):
+        self.dsn = st.secrets["neon"]["dsn"]
+        self.conn = get_conn(self.dsn)
 
-def run_query(query, params=None):
-    conn = get_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
+    def _ensure_live_conn(self):
+        if self.conn.closed:
+            get_conn.clear()
+            self.conn = get_conn(self.dsn)
+
+    def fetch_df(self, query: str, params=None) -> pd.DataFrame:
+        self._ensure_live_conn()
+        try:
+            with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-                lower_query = query.strip().lower()
-
-                if lower_query.startswith("select") or " returning " in lower_query:
-                    return cur.fetchall()
-                else:
-                    conn.commit()
-                    return None
-    except Exception as e:
-        st.error(f"🚨 Query Execution Error: {e}")
-        raise
-    finally:
-        conn.close()
-
-def run_transaction(query, params=None):
-    conn = get_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
+                rows = cur.fetchall()
+                cols = [c[0] for c in cur.description]
+        except OperationalError:
+            get_conn.clear()
+            self.conn = get_conn(self.dsn)
+            with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-            conn.commit()
-    except Exception as e:
-        conn.rollback()
-        st.error(f"🚨 Transaction Failed: {e}")
-        raise
-    finally:
-        conn.close()
+                rows = cur.fetchall()
+                cols = [c[0] for c in cur.description]
+        return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+
+    def execute(self, query: str, params=None, returning=False):
+        self._ensure_live_conn()
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, params or ())
+                res = cur.fetchone() if returning else None
+            self.conn.commit()
+            return res
+        except OperationalError:
+            get_conn.clear()
+            self.conn = get_conn(self.dsn)
+            with self.conn.cursor() as cur:
+                cur.execute(query, params or ())
+                res = cur.fetchone() if returning else None
+            self.conn.commit()
+            return res
