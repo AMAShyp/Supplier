@@ -1,6 +1,6 @@
 import streamlit as st
 from sup_signin import sign_in_with_google
-from supplier_handler import get_or_create_supplier
+from supplier.supplier_handler import get_or_create_supplier
 from home import show_home_page
 from purchase_order.main_po import show_main_po_page  # 🔥 Updated import for PO management
 
