@@ -13,27 +13,20 @@ from supplier.supplier_handler import (
 )
 
 # ───────────────────────────────────────────────────────────────
-# Public entry
-# ───────────────────────────────────────────────────────────────
 def show_supplier_dashboard(supplier: dict):
-    """Top-level dashboard wrapper. Call from app.py."""
     st.subheader("📊 Supplier Dashboard")
 
-    display_name = supplier.get("suppliername") or supplier["contactemail"]
-    st.markdown(f"Welcome, **{display_name}**")
+    name = supplier.get("suppliername") or supplier["contactemail"]
+    st.markdown(f"Welcome, **{name}**")
     st.markdown(f"Supplier ID : **{supplier['supplierid']}**")
 
     missing = get_missing_fields(supplier)
     if missing:
-        _profile_form(
-            supplier,
-            title="📝 Complete your profile",
-            missing_only=True,
-            missing_fields=missing,
-        )
+        _profile_form(supplier, "📝 Complete your profile",
+                      missing_only=True, missing_fields=missing)
     else:
         with st.expander("✏️ Edit profile"):
-            _profile_form(supplier, title=None, missing_only=False)
+            _profile_form(supplier, None, missing_only=False)
 
     st.divider()
     if st.button("Log out"):
@@ -41,70 +34,56 @@ def show_supplier_dashboard(supplier: dict):
         st.rerun()
 
 # ───────────────────────────────────────────────────────────────
-# Internal helpers
-# ───────────────────────────────────────────────────────────────
-def _profile_form(
-    supplier: dict,
-    title: str | None,
-    missing_only: bool,
-    missing_fields: list[str] | None = None,
-):
+def _profile_form(supplier, title, missing_only, missing_fields=None):
     schema = get_supplier_form_structure()
     if title:
         st.info(title)
 
     with st.form("supplier_profile_form", clear_on_submit=False):
         data = {}
-        # Capture/choose country first (needed for dynamic city options)
-        preselected_country = supplier.get("country", "")
+        # ----- Country first (needed for dependent city) -----
+        pre_country = supplier.get("country", "")
         if (not missing_only) or ("country" in (missing_fields or [])):
             data["country"] = st.selectbox(
                 schema["country"]["label"],
                 schema["country"]["options"],
-                index=_safe_index(schema["country"]["options"], preselected_country),
+                index=_safe_index(schema["country"]["options"], pre_country),
             )
         else:
-            data["country"] = preselected_country
+            data["country"] = pre_country
 
-        # Loop over the rest of the fields
-        for field_key, field_label in SUPPLIER_FIELDS.items():
-            if field_key in ("country",):  # already handled
+        # ----- Remaining fields -----
+        for key, label in SUPPLIER_FIELDS.items():
+            if key == "country":
                 continue
-            if missing_only and field_key not in (missing_fields or []):
+            if missing_only and key not in (missing_fields or []):
                 continue
 
-            meta = schema.get(field_key, {"type": "text"})
-            current_value = supplier.get(field_key, "")
+            meta = schema.get(key, {"type": "text"})
+            current = supplier.get(key, "")
 
-            if meta["type"] == "dynamic_select":  # City (dependent)
-                city_options = list_cities_for_country(data["country"])
-                if city_options:
-                    data[field_key] = st.selectbox(
-                        meta["label"],
-                        city_options,
-                        index=_safe_index(city_options, current_value),
-                    )
-                else:  # fallback to free text
-                    data[field_key] = st.text_input(meta["label"], value=current_value)
+            if meta["type"] == "dynamic_select":  # City
+                options = list_cities_for_country(data["country"])
+                if options:
+                    data[key] = st.selectbox(label, options,
+                                             index=_safe_index(options, current))
+                else:
+                    data[key] = st.text_input(label, value=current)
 
             elif meta["type"] == "select":
-                data[field_key] = st.selectbox(
-                    meta["label"],
-                    meta["options"],
-                    index=_safe_index(meta["options"], current_value),
-                )
+                data[key] = st.selectbox(label, meta["options"],
+                                         index=_safe_index(meta["options"], current))
             elif meta["type"] == "textarea":
-                data[field_key] = st.text_area(meta["label"], value=current_value)
+                data[key] = st.text_area(label, value=current)
             else:
-                data[field_key] = st.text_input(meta["label"], value=current_value)
+                data[key] = st.text_input(label, value=current)
 
         if st.form_submit_button("💾 Save"):
             save_supplier_details(supplier["supplierid"], data)
             st.success("Profile updated successfully! 🎉")
             st.rerun()
 
-def _safe_index(options: list[str], value: str) -> int:
-    """Return list index or 0 if value not present."""
+def _safe_index(options, value):
     try:
         return options.index(value)
     except ValueError:
