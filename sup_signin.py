@@ -7,7 +7,7 @@ def sign_in_with_google():
     Returns a dictionary with the user's name and email if logged in.
     """
     # 1. Check if the user is logged in
-    if not st.experimental_user.is_logged_in:
+    if not st.user.is_logged_in:
         st.write("You are not logged in.")
         # Provide a button to start Google login
         if st.button("Log in with Google"):
@@ -16,7 +16,7 @@ def sign_in_with_google():
 
     # 2. If we reach here, the user is logged in
     user_info = {
-        "name": st.experimental_user.name or "",
-        "email": st.experimental_user.email or ""
+        "name": st.user.name or "",
+        "email": st.user.email or ""
     }
     return user_info
