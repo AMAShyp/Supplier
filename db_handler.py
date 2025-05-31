@@ -1,53 +1,68 @@
-# db_handler.py (updated for Supplier App)
+# db_handler.py
 import streamlit as st
 import psycopg2
 from psycopg2 import OperationalError
-import pandas as pd
+from psycopg2.extras import RealDictCursor
 
+# ─────────────────────────────────────────────────────────────
+# 1. Keep one live connection per user session
+# ─────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def get_conn(dsn: str):
+def _get_conn_cached(dsn: str):
     """Create (once) and return a live PostgreSQL connection."""
-    return psycopg2.connect(dsn)
+    return psycopg2.connect(dsn, cursor_factory=RealDictCursor)
 
+# ─────────────────────────────────────────────────────────────
+# 2. Thin database manager (auto-reconnect + helpers)
+# ─────────────────────────────────────────────────────────────
 class DatabaseManager:
     def __init__(self):
-        self.dsn = st.secrets["neon"]["dsn"]
-        self.conn = get_conn(self.dsn)
+        self.dsn  = st.secrets["neon"]["dsn"]
+        self.conn = _get_conn_cached(self.dsn)          # reused across reruns
 
-    def _ensure_live_conn(self):
-        if self.conn.closed:
-            get_conn.clear()
-            self.conn = get_conn(self.dsn)
+    # ---------- internals ----------
+    def _ensure_live(self):
+        if self.conn.closed:                            # 0=open, >0=closed
+            _get_conn_cached.clear()
+            self.conn = _get_conn_cached(self.dsn)
 
-    def fetch_df(self, query: str, params=None) -> pd.DataFrame:
-        self._ensure_live_conn()
+    def _retry_if_needed(self, fn, *args, **kwargs):
         try:
-            with self.conn.cursor() as cur:
-                cur.execute(query, params or ())
-                rows = cur.fetchall()
-                cols = [c[0] for c in cur.description]
+            return fn(*args, **kwargs)                  # first attempt
         except OperationalError:
-            get_conn.clear()
-            self.conn = get_conn(self.dsn)
+            _get_conn_cached.clear()                    # reconnect + retry once
+            self.conn = _get_conn_cached(self.dsn)
+            return fn(*args, **kwargs)
+
+    # ---------- public helpers ----------
+    def fetch(self, query: str, params=None):
+        """Run SELECT and return list[dict]."""
+        def _run():
             with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-                rows = cur.fetchall()
-                cols = [c[0] for c in cur.description]
-        return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame()
+                return cur.fetchall()
+        self._ensure_live()
+        return self._retry_if_needed(_run)
 
     def execute(self, query: str, params=None, returning=False):
-        self._ensure_live_conn()
-        try:
+        """Run INSERT/UPDATE/DELETE (optionally RETURNING one row)."""
+        def _run():
             with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-                res = cur.fetchone() if returning else None
+                row = cur.fetchone() if returning else None
             self.conn.commit()
-            return res
-        except OperationalError:
-            get_conn.clear()
-            self.conn = get_conn(self.dsn)
-            with self.conn.cursor() as cur:
-                cur.execute(query, params or ())
-                res = cur.fetchone() if returning else None
-            self.conn.commit()
-            return res
+            return row
+        self._ensure_live()
+        return self._retry_if_needed(_run)
+
+    # handy one-liner for a single row
+    def fetch_one(self, query: str, params=None):
+        rows = self.fetch(query, params)
+        return rows[0] if rows else None
+
+# ─────────────────────────────────────────────────────────────
+# 3. Cached singleton for easy import everywhere
+# ─────────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner=False)
+def get_db() -> DatabaseManager:
+    return DatabaseManager()
