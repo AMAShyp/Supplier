@@ -1,10 +1,15 @@
 # supplier/supplier_handler.py
+"""Business-logic helpers for Supplier profile CRUD."""
+
+from typing import Dict, List
 from db_handler import get_db
 
-db = get_db()   # ← cached singleton
+db = get_db()                # cached DatabaseManager singleton
 
-# ────────────────── metadata for the profile form ──────────────────
-SUPPLIER_FIELDS = {
+# ───────────────────────────────────────────────────────────────
+# Field metadata (label shown in the profile form)
+# ───────────────────────────────────────────────────────────────
+SUPPLIER_FIELDS: Dict[str, str] = {
     "suppliername":  "Supplier Name",
     "suppliertype":  "Supplier Type",
     "country":       "Country",
@@ -17,31 +22,43 @@ SUPPLIER_FIELDS = {
     "bankdetails":   "Bank Details",
 }
 
-# ────────────────── CRUD helpers ──────────────────
-def get_supplier_by_email(email: str):
+# ───────────────────────────────────────────────────────────────
+# CRUD helpers
+# ───────────────────────────────────────────────────────────────
+def get_supplier_by_email(email: str) -> Dict | None:
+    """Return the supplier row for a given contact email, or None."""
     q = "SELECT * FROM supplier WHERE contactemail = %s"
     return db.fetch_one(q, (email,))
 
-def create_supplier(contactemail: str):
+def create_supplier(contactemail: str) -> Dict:
+    """Insert a minimal supplier record (blank name) and return the new row."""
     q = """
         INSERT INTO supplier (suppliername, contactemail)
         VALUES (%s, %s)
-        RETURNING supplierid, suppliername, contactemail
+        RETURNING *
     """
     return db.execute(q, ("", contactemail), returning=True)
 
-def get_or_create_supplier(contactemail: str):
-    sup = get_supplier_by_email(contactemail)
-    return sup or create_supplier(contactemail)
+def get_or_create_supplier(contactemail: str) -> Dict:
+    """Fetch supplier by email or create one if absent."""
+    return get_supplier_by_email(contactemail) or create_supplier(contactemail)
 
-def get_missing_fields(supplier_row: dict):
+def get_missing_fields(supplier_row: Dict) -> List[str]:
+    """Return list of required columns that are NULL / empty for this supplier."""
     return [k for k in SUPPLIER_FIELDS if not supplier_row.get(k)]
 
-def get_form_structure():
-    """Returned to Streamlit for dynamic UI building."""
+# ───────────────────────────────────────────────────────────────
+# Profile-form schema handed to Streamlit UI
+# ───────────────────────────────────────────────────────────────
+def get_supplier_form_structure() -> Dict[str, Dict]:
+    """
+    Metadata for dynamic form rendering:
+    {field_key: {label, type, options?}}
+    """
     return {
         "suppliertype": {"label": "Supplier Type", "type": "select",
-                         "options": ["Manufacturer", "Distributor", "Retailer", "Other"]},
+                         "options": ["Manufacturer", "Distributor",
+                                     "Retailer", "Other"]},
         "country":      {"label": "Country",       "type": "text"},
         "city":         {"label": "City",          "type": "text"},
         "address":      {"label": "Address",       "type": "text"},
@@ -52,7 +69,14 @@ def get_form_structure():
         "bankdetails":  {"label": "Bank Details",  "type": "textarea"},
     }
 
-def save_supplier_details(supplierid: int, data: dict):
+# (Optional) legacy alias so older code calling get_form_structure() keeps working
+get_form_structure = get_supplier_form_structure
+
+# ───────────────────────────────────────────────────────────────
+# Update helper
+# ───────────────────────────────────────────────────────────────
+def save_supplier_details(supplierid: int, data: Dict):
+    """Persist edits from the profile form."""
     q = """
         UPDATE supplier
         SET suppliername = %s, suppliertype = %s, country = %s, city = %s,
@@ -61,9 +85,11 @@ def save_supplier_details(supplierid: int, data: dict):
         WHERE supplierid = %s
     """
     params = (
-        data.get("suppliername", ""), data.get("suppliertype", ""), data.get("country", ""),
-        data.get("city", ""),        data.get("address", ""),       data.get("postalcode", ""),
-        data.get("contactname", ""), data.get("contactphone", ""),  data.get("paymentterms", ""),
-        data.get("bankdetails", ""), supplierid
+        data.get("suppliername", ""), data.get("suppliertype", ""),
+        data.get("country", ""),      data.get("city", ""),
+        data.get("address", ""),      data.get("postalcode", ""),
+        data.get("contactname", ""),  data.get("contactphone", ""),
+        data.get("paymentterms", ""), data.get("bankdetails", ""),
+        supplierid,
     )
     db.execute(q, params)
