@@ -22,28 +22,28 @@ class DatabaseManager:
 
     # ---------- internals ----------
     def _ensure_live(self):
-         """
-         1.  Reconnect if Neon closed the socket.
-         2.  Roll back if a previous error left the connection in
-             TRANSACTION_STATUS_INERROR, otherwise the next query
-             would raise `InFailedSqlTransaction`.
-         """
-         # 1️⃣ reconnect if fully closed
-         if self.conn.closed:               # 0 = open, >0 = closed
-             _get_conn_cached.clear()
-             self.conn = _get_conn_cached(self.dsn)
- 
-         # 2️⃣ recover from a failed transaction block
-         if (
-             self.conn.get_transaction_status()
-             == extensions.TRANSACTION_STATUS_INERROR
-         ):
-             try:
-                 self.conn.rollback()       # clear the aborted Tx
-             except Exception:
-                 # if rollback itself fails, start fresh
-                 _get_conn_cached.clear()
-                 self.conn = _get_conn_cached(self.dsn)
+        """
+        1.  Reconnect if Neon closed the socket.
+        2.  Roll back if a previous error left the connection in
+            TRANSACTION_STATUS_INERROR, otherwise the next query
+            would raise `InFailedSqlTransaction`.
+        """
+        # 1️⃣ reconnect if fully closed
+        if self.conn.closed:               # 0 = open, >0 = closed
+            _get_conn_cached.clear()
+            self.conn = _get_conn_cached(self.dsn)
+
+        # 2️⃣ recover from a failed transaction block
+        if (
+            self.conn.get_transaction_status()
+            == extensions.TRANSACTION_STATUS_INERROR
+        ):
+            try:
+                self.conn.rollback()       # clear the aborted Tx
+            except Exception:
+                # if rollback itself fails, start fresh
+                _get_conn_cached.clear()
+                self.conn = _get_conn_cached(self.dsn)
  
     def _retry_if_needed(self, fn, *args, **kwargs):
         try:
