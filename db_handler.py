@@ -26,6 +26,22 @@ class DatabaseManager:
             _get_conn_cached.clear()
             self.conn = _get_conn_cached(self.dsn)
 
+
+    def _ensure_live_conn(self):
+        """Reconnect or reset if Neon closed it *or* it’s in failed state."""
+        if self.conn.closed:                       # 0 = open
+            _get_conn_cached.clear()
+            self.conn = _get_conn_cached(self.dsn)
+
+        # NEW: recover from an aborted transaction
+        if self.conn.get_transaction_status() == extensions.TRANSACTION_STATUS_INERROR:
+            try:
+                self.conn.rollback()               # clear the error
+            except Exception:
+                _get_conn_cached.clear()           # worst-case, reconnect
+                self.conn = _get_conn_cached(self.dsn)
+                
+
     def _retry_if_needed(self, fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)                  # first attempt
