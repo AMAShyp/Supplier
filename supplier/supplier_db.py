@@ -1,5 +1,7 @@
-# supplier/supplier_handler.py
-from db_handler import run_query
+# supplier/supplier_handler.py (updated)
+from db_handler import DatabaseManager
+
+db = DatabaseManager()
 
 SUPPLIER_FIELDS = {
     "suppliername": "Supplier Name",
@@ -16,8 +18,8 @@ SUPPLIER_FIELDS = {
 
 def get_supplier_by_email(email):
     query = "SELECT * FROM supplier WHERE contactemail = %s"
-    result = run_query(query, (email,))
-    return result[0] if result else None
+    df = db.fetch_df(query, (email,))
+    return df.iloc[0].to_dict() if not df.empty else None
 
 def create_supplier(contactemail):
     query = """
@@ -26,18 +28,15 @@ def create_supplier(contactemail):
     RETURNING supplierid, suppliername, contactemail;
     """
     params = ("", contactemail)
-    result = run_query(query, params)
-    return result[0] if result else None
+    res = db.execute(query, params, returning=True)
+    return {"supplierid": res[0], "suppliername": res[1], "contactemail": res[2]} if res else None
 
 def get_or_create_supplier(contactemail):
     supplier = get_supplier_by_email(contactemail)
     return supplier or create_supplier(contactemail)
 
 def get_missing_fields(supplier):
-    return [
-        key for key, label in SUPPLIER_FIELDS.items()
-        if not supplier.get(key)
-    ]
+    return [key for key in SUPPLIER_FIELDS if not supplier.get(key)]
 
 def get_supplier_form_structure():
     return {
@@ -54,18 +53,10 @@ def get_supplier_form_structure():
 
 def save_supplier_details(supplierid, form_data):
     query = """
-    UPDATE supplier
-    SET
-        suppliername = %s,
-        suppliertype = %s,
-        country = %s,
-        city = %s,
-        address = %s,
-        postalcode = %s,
-        contactname = %s,
-        contactphone = %s,
-        paymentterms = %s,
-        bankdetails = %s
+    UPDATE supplier SET
+        suppliername = %s, suppliertype = %s, country = %s, city = %s,
+        address = %s, postalcode = %s, contactname = %s, contactphone = %s,
+        paymentterms = %s, bankdetails = %s
     WHERE supplierid = %s
     """
     params = (
@@ -81,4 +72,4 @@ def save_supplier_details(supplierid, form_data):
         form_data.get("bankdetails", ""),
         supplierid,
     )
-    run_query(query, params)
+    db.execute(query, params)
