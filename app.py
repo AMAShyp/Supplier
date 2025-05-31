@@ -3,6 +3,7 @@ from sup_signin import sign_in_with_google
 from supplier.supplier_handler import get_or_create_supplier
 from home import show_home_page
 from purchase_order.main_po import show_main_po_page  # 🔥 Updated import for PO management
+from supplier.supplier import show_supplier_dashboard
 
 def main():
     """Main entry point for the AMAS Supplier App."""
@@ -27,17 +28,6 @@ def main():
         show_main_po_page(supplier)  # 🔥 Now using `main_po.py` to manage PO pages
     else:
         show_supplier_dashboard(supplier)
-
-def show_supplier_dashboard(supplier):
-    """Displays the supplier dashboard."""
-    st.subheader("📊 Supplier Dashboard")
-    st.write(f"Welcome, **{supplier['suppliername']}**!")
-    st.write(f"Your Supplier ID is: **{supplier['supplierid']}**")
-
-    # Logout button
-    if st.button("Log out"):
-        st.logout()
-        st.rerun()
 
 if __name__ == "__main__":
     main()
