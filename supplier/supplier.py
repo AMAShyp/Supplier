@@ -41,16 +41,17 @@ def _profile_form(supplier, title, missing_only, missing_fields=None):
 
     with st.form("supplier_profile_form", clear_on_submit=False):
         data = {}
+
         # ----- Country first (needed for dependent city) -----
+        country_options = schema["country"]["options"]
         pre_country = supplier.get("country", "")
-        if (not missing_only) or ("country" in (missing_fields or [])):
-            data["country"] = st.selectbox(
-                schema["country"]["label"],
-                schema["country"]["options"],
-                index=_safe_index(schema["country"]["options"], pre_country),
-            )
-        else:
-            data["country"] = pre_country
+        # Default to "Iraq" when the DB value is empty/NULL
+        default_country = pre_country or "Iraq"
+        data["country"] = st.selectbox(
+            schema["country"]["label"],
+            country_options,
+            index=_safe_index(country_options, default_country),
+        )
 
         # ----- Remaining fields -----
         for key, label in SUPPLIER_FIELDS.items():
@@ -84,6 +85,7 @@ def _profile_form(supplier, title, missing_only, missing_fields=None):
             st.rerun()
 
 def _safe_index(options, value):
+    """Return options.index(value) or 0 if value not present."""
     try:
         return options.index(value)
     except ValueError:
