@@ -1,15 +1,17 @@
 # app.py
 import streamlit as st
 
-from sup_signin import sign_in_with_google
-from sidebar import render_sidebar               # NEW sidebar helper
+st.set_page_config(page_title="AMAS Supplier App", page_icon="🛒")  # ① FIRST
+
+from sup_signin import sign_in_with_google        # remaining imports now safe
+from sidebar import render_sidebar
 from supplier.supplier_handler import get_or_create_supplier
 from home import show_home_page
 from purchase_order.main_po import show_main_po_page
 from supplier.supplier import show_supplier_dashboard
 
-
 def main() -> None:
+    st.title("AMAS Supplier App")
     """AMAS Supplier App – Streamlit entry point."""
     st.set_page_config(page_title="AMAS Supplier App", page_icon="🛒")
     st.title("AMAS Supplier App")
