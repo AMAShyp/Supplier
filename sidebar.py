@@ -1,40 +1,54 @@
 """
 sidebar.py
-Sidebar component – button navigation with a modern blue highlight on
-the active page.
+Sidebar component – button navigation with a blue-gradient highlight
+for the current (active) page.
 """
 
 import streamlit as st
 from supplier.supplier_handler import get_missing_fields
 from purchase_order.po_handler import get_purchase_orders_for_supplier
 
-ACCENT_BLUE = "#0d6efd"          # Bootstrap-like primary blue
-ACCENT_BLUE_2 = "#1a74ff"        # lighter blue for gradient
-STATE_KEY = "nav_page"           # session_state key
-
+ACCENT_GRAD = "linear-gradient(90deg, #0d6efd 0%, #1a74ff 100%)"
+STATE_KEY = "nav_page"
 
 # ───────────────────────────────────────────────────────────────
-# Internal helpers
+# CSS injected once per run (after page_config is set)
 # ───────────────────────────────────────────────────────────────
-def _inject_sidebar_css() -> None:
-    """Inject CSS that re-skins disabled nav buttons as a blue highlight."""
+def _inject_css():
     st.markdown(
         f"""
         <style>
-        button[data-testid="baseButton-secondary"][disabled] {{
-            background: linear-gradient(90deg, {ACCENT_BLUE} 0%, {ACCENT_BLUE_2} 100%) !important;
-            color: white !important;
-            opacity: 1 !important;          /* remove grey overlay       */
-            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15); /* subtle inner border */
-            cursor: default !important;     /* pointer stays arrow       */
+        /* Base look for custom nav blocks */
+        .nav-item {{
+            padding: 0.45rem 0.75rem;
+            width: 100%;
+            display: block;
+            border-radius: 0.33rem;
+            text-align: left;
+            cursor: pointer;
+        }}
+        .nav-item:hover {{
+            background: rgba(0,0,0,0.05);
+        }}
+        .nav-item.active {{
+            background: {ACCENT_GRAD};
+            color: #ffffff !important;
+            font-weight: 600;
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15);
+            cursor: default;
+        }}
+        .nav-badge {{
+            float: right;
         }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-
-def _supplier_card(supplier: dict) -> None:
+# ───────────────────────────────────────────────────────────────
+# Helper blocks
+# ───────────────────────────────────────────────────────────────
+def _supplier_card(supplier: dict):
     st.markdown(
         f"**{supplier.get('suppliername') or 'New Supplier'}**<br>"
         f"ID&nbsp;`{supplier['supplierid']}`<br>"
@@ -45,57 +59,57 @@ def _supplier_card(supplier: dict) -> None:
         st.warning("Profile incomplete", icon="⚠️")
 
 
-def _po_badge(supplier_id: int) -> tuple[str, str]:
-    """Return (base_label, badge_label) with pending-count if >0."""
-    base = "📦 Purchase Orders"
+def _pending_po_badge(supplier_id: int) -> int:
     try:
         active = get_purchase_orders_for_supplier(supplier_id)
-        pending = sum(po["status"] == "Pending" for po in active)
-        if pending:
-            return base, f"{base} ({pending})"
+        return sum(po["status"] == "Pending" for po in active)
     except Exception:
-        pass
-    return base, base
+        return 0
 
+
+def _nav_button(label: str, target: str) -> None:
+    """
+    Custom nav element:
+    • If currently active → styled <div>, no click.
+    • Else → st.button that updates session_state & reruns.
+    """
+    current = st.session_state[STATE_KEY]
+    if current == target:
+        st.markdown(f'<div class="nav-item active">{label}</div>',
+                    unsafe_allow_html=True)
+    else:
+        if st.button(label, use_container_width=True, key=f"nav_{target}"):
+            st.session_state[STATE_KEY] = target
+            st.rerun()
 
 # ───────────────────────────────────────────────────────────────
 # Public API
 # ───────────────────────────────────────────────────────────────
 def render_sidebar(supplier: dict) -> str:
     """
-    Render sidebar, manage session_state[nav_page], return current page label.
-    Active button = blue gradient highlight (disabled so it can't be re-clicked).
+    Builds sidebar and returns the selected page label.
     """
-    _inject_sidebar_css()  # must run after set_page_config()
+    _inject_css()
 
+    # Initialise nav state the very first run
     if STATE_KEY not in st.session_state:
         st.session_state[STATE_KEY] = "🏠 Home"
-    current = st.session_state[STATE_KEY]
 
     with st.sidebar:
         st.title("📌 Navigation")
         _supplier_card(supplier)
         st.divider()
 
-        # ---- Home ----------------------------------------------------------
-        if st.button("🏠 Home", use_container_width=True,
-                     disabled=current == "🏠 Home", key="nav_home"):
-            st.session_state[STATE_KEY] = "🏠 Home"
-            st.rerun()
+        # -------- Home --------
+        _nav_button("🏠 Home", "🏠 Home")
 
-        # ---- Purchase Orders ----------------------------------------------
-        base_po, po_label = _po_badge(supplier["supplierid"])
-        if st.button(po_label, use_container_width=True,
-                     disabled=current.startswith("📦"), key="nav_po"):
-            st.session_state[STATE_KEY] = base_po
-            st.rerun()
+        # -------- Purchase Orders (badge) --------
+        pending = _pending_po_badge(supplier["supplierid"])
+        po_label = f"📦 Purchase Orders{' <span class=\"nav-badge\">(' + str(pending) + ')</span>' if pending else ''}"
+        _nav_button(po_label, "📦 Purchase Orders")
 
-        # ---- Supplier Dashboard -------------------------------------------
-        dash = "📊 Supplier Dashboard"
-        if st.button(dash, use_container_width=True,
-                     disabled=current == dash, key="nav_dash"):
-            st.session_state[STATE_KEY] = dash
-            st.rerun()
+        # -------- Dashboard --------
+        _nav_button("📊 Supplier Dashboard", "📊 Supplier Dashboard")
 
         st.divider()
         if st.button("Log out", use_container_width=True, key="sidebar_logout"):
