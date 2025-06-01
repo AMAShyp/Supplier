@@ -23,16 +23,14 @@ def main() -> None:
     supplier = get_or_create_supplier(user_info["email"])
 
     # 3️⃣ Sidebar & navigation
-    menu_choice = render_sidebar(supplier)   # ← returns plain label
+    menu_choice = render_sidebar(supplier)
 
     # 4️⃣ Router
     if menu_choice == "🏠 Home":
         show_home_page()
-
     elif menu_choice.startswith("📦 Purchase Orders"):
         show_main_po_page(supplier)
-
-    else:  # "📊 Supplier Dashboard"
+    else:
         show_supplier_dashboard(supplier)
 
 
