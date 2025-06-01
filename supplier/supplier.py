@@ -4,6 +4,7 @@ Supplier dashboard page – profile completeness + edit form.
 """
 
 import streamlit as st
+from translation import _
 from supplier.supplier_handler import (
     SUPPLIER_FIELDS,
     get_missing_fields,
@@ -14,18 +15,18 @@ from supplier.supplier_handler import (
 
 # ───────────────────────────────────────────────────────────────
 def show_supplier_dashboard(supplier: dict):
-    st.subheader("📊 Supplier Dashboard")
+    st.subheader(_("nav_dash"))
 
     name = supplier.get("suppliername") or supplier["contactemail"]
-    st.markdown(f"Welcome, **{name}**")
-    st.markdown(f"Supplier ID : **{supplier['supplierid']}**")
+    st.markdown(_("welcome_user", name=name))
+    st.markdown(_("supplier_id", id=supplier['supplierid']))
 
     missing = get_missing_fields(supplier)
     if missing:
-        _profile_form(supplier, "📝 Complete your profile",
+        _profile_form(supplier, _("complete_profile"),
                       missing_only=True, missing_fields=missing)
     else:
-        with st.expander("✏️ Edit profile"):
+        with st.expander(_("edit_profile")):
             _profile_form(supplier, None, missing_only=False)
 
 # ───────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ def _profile_form(supplier, title, missing_only, missing_fields=None):
         # Default to "Iraq" when the DB value is empty/NULL
         default_country = pre_country or "Iraq"
         data["country"] = st.selectbox(
-            schema["country"]["label"],
+            _(schema["country"]["label"]),
             country_options,
             index=_safe_index(country_options, default_country),
         )
@@ -58,25 +59,27 @@ def _profile_form(supplier, title, missing_only, missing_fields=None):
             meta = schema.get(key, {"type": "text"})
             current = supplier.get(key, "")
 
+            display_label = _(label)
             if meta["type"] == "dynamic_select":  # City
                 options = list_cities_for_country(data["country"])
                 if options:
-                    data[key] = st.selectbox(label, options,
+                    data[key] = st.selectbox(display_label, options,
                                              index=_safe_index(options, current))
                 else:
-                    data[key] = st.text_input(label, value=current)
+                    data[key] = st.text_input(display_label, value=current)
 
             elif meta["type"] == "select":
-                data[key] = st.selectbox(label, meta["options"],
-                                         index=_safe_index(meta["options"], current))
+                options = [_(opt) for opt in meta["options"]]
+                data[key] = st.selectbox(display_label, options,
+                                         index=_safe_index(options, current))
             elif meta["type"] == "textarea":
-                data[key] = st.text_area(label, value=current)
+                data[key] = st.text_area(display_label, value=current)
             else:
-                data[key] = st.text_input(label, value=current)
+                data[key] = st.text_input(display_label, value=current)
 
-        if st.form_submit_button("💾 Save"):
+        if st.form_submit_button(_("save")):
             save_supplier_details(supplier["supplierid"], data)
-            st.success("Profile updated successfully! 🎉")
+            st.success(_("profile_updated"))
             st.rerun()
 
 def _safe_index(options, value):

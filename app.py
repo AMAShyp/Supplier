@@ -1,8 +1,9 @@
 # app.py
 import streamlit as st
+from translation import _, is_rtl                        # _() = translate helper
 
 # 1️⃣ MUST be the first Streamlit call
-st.set_page_config(page_title="AMAS Supplier App", page_icon="🛒")
+st.set_page_config(page_title=_("app_title"), page_icon="🛒")
 
 # ------------------------------------------------------------------
 # Imports *after* page_config
@@ -13,7 +14,6 @@ from supplier.supplier_handler import get_or_create_supplier
 from home import show_home_page
 from purchase_order.main_po import show_main_po_page
 from supplier.supplier import show_supplier_dashboard
-from translation import _, is_rtl                        # _() = translate helper
 
 # Optional RTL support (Sorani Kurdish)
 if is_rtl():

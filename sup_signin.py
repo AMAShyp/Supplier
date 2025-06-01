@@ -1,4 +1,5 @@
 import streamlit as st
+from translation import _
 
 def sign_in_with_google():
     """
@@ -8,9 +9,9 @@ def sign_in_with_google():
     """
     # 1. Check if the user is logged in
     if not st.user.is_logged_in:
-        st.write("You are not logged in.")
+        st.write(_("not_logged_in"))
         # Provide a button to start Google login
-        if st.button("Log in with Google"):
+        if st.button(_("login_with_google")):
             st.login()  # Triggers the OIDC flow
         st.stop()  # Stop the script so user can complete sign-in
 

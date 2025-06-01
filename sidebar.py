@@ -56,8 +56,8 @@ def _language_selector():
 
 def _supplier_card(sup: dict):
     st.markdown(
-        f"**{sup.get('suppliername') or 'New Supplier'}**<br>"
-        f"ID&nbsp;`{sup['supplierid']}`<br>"
+        f"**{sup.get('suppliername') or _('new_supplier')}**<br>"
+        f"{_('id_label')}&nbsp;`{sup['supplierid']}`<br>"
         f"✉️ {sup['contactemail']}",
         unsafe_allow_html=True
     )

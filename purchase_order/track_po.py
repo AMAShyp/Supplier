@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+from translation import _
 from purchase_order.po_handler import (
     get_purchase_orders_for_supplier,
     get_purchase_order_items,
@@ -17,7 +18,7 @@ def show_purchase_orders_page(supplier):
        * Modify flow lets user propose qty / price / expiration / note / delivery.
     """
 
-    st.subheader("📦 Track Purchase Orders")
+    st.subheader(_("track_po_header"))
 
     st.session_state.setdefault("decline_po_show_reason", {})
     st.session_state.setdefault("modify_po_show_form", {})
@@ -25,19 +26,19 @@ def show_purchase_orders_page(supplier):
 
     po_list = get_purchase_orders_for_supplier(supplier["supplierid"])
     if not po_list:
-        st.info("No active purchase orders.")
+        st.info(_("no_active_pos"))
         return
 
     # -------------------------------------------------------------------------
     for po in po_list:
         poid = po["poid"]
 
-        with st.expander(f"PO ID: {poid} | Status: {po['status']}"):
+        with st.expander(_("po_expander", id=poid, status=po['status'])):
             # ----- Basic info
-            st.write(f"**Order Date:** {po['orderdate']}")
-            st.write(f"**Expected Delivery:** {po['expecteddelivery'] or 'Not Set'}")
-            st.write(f"**Current Status:** {po['status']}")
-            st.write(f"**Supplier Note:** {po.get('suppliernote') or ''}")
+            st.write(_("order_date", date=po['orderdate']))
+            st.write(_("expected_delivery", date=po['expecteddelivery'] or _('not_set')))
+            st.write(_("current_status", status=po['status']))
+            st.write(_("supplier_note", note=po.get('suppliernote') or ''))
 
             # ----- Items (read‑only table)
             items = get_purchase_order_items(poid)
@@ -53,7 +54,7 @@ def show_purchase_orders_page(supplier):
                 } for it in items]
                 st.dataframe(pd.DataFrame(rows))
             else:
-                st.info("No items found for this PO.")
+                st.info(_("no_items_found_po"))
 
             # ==================================================================
             #                          PENDING ACTIONS
@@ -64,41 +65,41 @@ def show_purchase_orders_page(supplier):
                 # ---------------- Accept Order ----------------
                 with c1:
                     if not st.session_state["accept_po_show_exp"].get(poid):
-                        if st.button("Accept Order", key=f"accept_{poid}"):
+                        if st.button(_("accept_order_btn"), key=f"accept_{poid}"):
                             st.session_state["accept_po_show_exp"][poid] = True
                             st.rerun()
                     else:
-                        st.subheader("Enter Expiration Dates then Confirm Accept")
+                        st.subheader(_("enter_expiration"))
                         exp_dates = {}
                         for it in items:
                             iid = it["itemid"]
                             default_exp = it.get("supexpirationdate") or datetime.date.today()
                             exp_dates[iid] = st.date_input(
-                                f"Item {iid} Expiration", value=default_exp,
+                                _( "item_expiration", id=iid ), value=default_exp,
                                 key=f"acc_exp_{poid}_{iid}"
                             )
-                        d_date = st.date_input("Final Delivery Date", key=f"acc_date_{poid}")
-                        d_time = st.time_input("Final Delivery Time", key=f"acc_time_{poid}")
+                        d_date = st.date_input(_("final_delivery_date"), key=f"acc_date_{poid}")
+                        d_time = st.time_input(_("final_delivery_time"), key=f"acc_time_{poid}")
 
-                        if st.button("Confirm Accept", key=f"acc_confirm_{poid}"):
+                        if st.button(_("confirm_accept"), key=f"acc_confirm_{poid}"):
                             for iid, exp in exp_dates.items():
                                 update_po_item_proposal(poid, iid, None, None, exp)
                             update_purchase_order_status(
                                 poid, "Accepted",
                                 expected_delivery=datetime.datetime.combine(d_date, d_time)
                             )
-                            st.success("PO Accepted with expiration dates saved.")
+                            st.success(_("po_accepted_msg"))
                             st.session_state["accept_po_show_exp"][poid] = False
                             st.rerun()
 
                 # ---------------- Modify Order ----------------
                 with c2:
                     if not st.session_state["modify_po_show_form"].get(poid):
-                        if st.button("Modify Order", key=f"modify_{poid}"):
+                        if st.button(_("modify_order_btn"), key=f"modify_{poid}"):
                             st.session_state["modify_po_show_form"][poid] = True
                             st.rerun()
                     else:
-                        st.subheader("Propose Changes to This Order")
+                        st.subheader(_("propose_changes_header"))
 
                         def_date, def_time = None, datetime.time(0, 0)
                         if isinstance(po.get("expecteddelivery"), datetime.datetime):
@@ -106,17 +107,17 @@ def show_purchase_orders_page(supplier):
                             def_time = po["expecteddelivery"].time()
 
                         with st.form(key=f"mod_form_{poid}"):
-                            p_date = st.date_input("Proposed Delivery Date",
+                            p_date = st.date_input(_("proposed_delivery_date"),
                                                    value=def_date,
                                                    key=f"mod_pdate_{poid}")
-                            p_time = st.time_input("Proposed Delivery Time",
+                            p_time = st.time_input(_("proposed_delivery_time"),
                                                    value=def_time,
                                                    key=f"mod_ptime_{poid}")
-                            p_note = st.text_area("Supplier Note",
+                            p_note = st.text_area(_("supplier_note_label"),
                                                   value=po.get("suppliernote") or "",
                                                   key=f"mod_pnote_{poid}")
 
-                            st.write("**Item‑Level Changes**")
+                            st.write(_("item_level_changes"))
                             item_changes = {}
                             for it in items:
                                 iid = it["itemid"]
@@ -124,22 +125,22 @@ def show_purchase_orders_page(supplier):
                                 base_price = it.get("supproposedprice")    or (it["estimatedprice"] or 0)
                                 base_exp   = it.get("supexpirationdate")  or datetime.date.today()
 
-                                st.write(f"Item {iid}: {it['itemnameenglish']}")
+                                st.write(_("item_label", id=iid, name=it['itemnameenglish']))
                                 cs1, cs2, cs3 = st.columns(3)
-                                qty_in = cs1.number_input("Qty", min_value=0,
+                                qty_in = cs1.number_input(_("qty_label"), min_value=0,
                                                           value=int(base_qty),
                                                           key=f"mod_qty_{poid}_{iid}")
-                                prc_in = cs2.number_input("Price", min_value=0.0,
+                                prc_in = cs2.number_input(_("price_label"), min_value=0.0,
                                                           value=float(base_price),
                                                           step=0.1,
                                                           key=f"mod_prc_{poid}_{iid}")
-                                exp_in = cs3.date_input("Expiration",
+                                exp_in = cs3.date_input(_("expiration_label"),
                                                         value=base_exp,
                                                         key=f"mod_exp_{poid}_{iid}")
                                 item_changes[iid] = (qty_in, prc_in, exp_in)
                                 st.write("---")
 
-                            if st.form_submit_button("Submit Propose"):
+                            if st.form_submit_button(_("submit_propose_btn")):
                                 for iid, (q, p, e) in item_changes.items():
                                     update_po_item_proposal(poid, iid, q, p, e)
 
@@ -148,38 +149,38 @@ def show_purchase_orders_page(supplier):
                                     sup_proposed_deliver=datetime.datetime.combine(p_date, p_time),
                                     supplier_note=p_note,
                                 )
-                                st.success("Proposal sent (status = Proposed by Supplier).")
+                                st.success(_("proposal_sent"))
                                 st.session_state["modify_po_show_form"][poid] = False
                                 st.rerun()
 
                 # ---------------- Decline Order ----------------
                 with c3:
                     if not st.session_state["decline_po_show_reason"].get(poid):
-                        if st.button("Decline Order", key=f"decl_{poid}"):
+                        if st.button(_("decline_order_btn"), key=f"decl_{poid}"):
                             st.session_state["decline_po_show_reason"][poid] = True
                             st.rerun()
                     else:
-                        dec_reason = st.text_area("Reason:", key=f"dec_note_{poid}")
+                        dec_reason = st.text_area(_("reason_label"), key=f"dec_note_{poid}")
                         d1, d2 = st.columns(2)
                         with d1:
-                            if st.button("Confirm Decline", key=f"dec_ok_{poid}"):
+                            if st.button(_("confirm_decline"), key=f"dec_ok_{poid}"):
                                 update_purchase_order_status(poid, "Declined",
                                                              supplier_note=dec_reason)
-                                st.warning("Order Declined.")
+                                st.warning(_("order_declined_msg"))
                                 st.session_state["decline_po_show_reason"][poid] = False
                                 st.rerun()
                         with d2:
-                            if st.button("Cancel", key=f"dec_cancel_{poid}"):
+                            if st.button(_("cancel_btn"), key=f"dec_cancel_{poid}"):
                                 st.session_state["decline_po_show_reason"][poid] = False
                                 st.rerun()
 
             # ---------------- Post‑pending buttons ----------------
             elif po["status"] == "Accepted":
-                if st.button("Mark as Shipping", key=f"ship_{poid}"):
+                if st.button(_("mark_shipping_btn"), key=f"ship_{poid}"):
                     update_purchase_order_status(poid, "Shipping")
-                    st.info("Order marked as Shipping."); st.rerun()
+                    st.info(_("order_marked_shipping")); st.rerun()
 
             elif po["status"] == "Shipping":
-                if st.button("Mark as Delivered", key=f"deliv_{poid}"):
+                if st.button(_("mark_delivered_btn"), key=f"deliv_{poid}"):
                     update_purchase_order_status(poid, "Delivered")
-                    st.success("Order marked as Delivered."); st.rerun()
+                    st.success(_("order_marked_delivered")); st.rerun()
