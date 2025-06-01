@@ -8,21 +8,22 @@ import streamlit as st
 from supplier.supplier_handler import get_missing_fields
 from purchase_order.po_handler import get_purchase_orders_for_supplier
 
-ACCENT = "#1ABC9C"   # ← AMAS teal
+ACCENT = "#1ABC9C"   # AMAS teal
 
 # ───────────────────────────────────────────────────────────────
-# CSS override: colour disabled nav buttons (active page)
-# ───────────────────────────────────────────────────────────────
-_HIGHLIGHT_CSS = f"""
-<style>
-button[data-testid="baseButton-secondary"][disabled] {{
-    background-color: {ACCENT} !important;
-    color: white       !important;
-    opacity: 1         !important;   /* no greyed-out look */
-}}
-</style>
-"""
-st.markdown(_HIGHLIGHT_CSS, unsafe_allow_html=True)
+def _inject_sidebar_css():
+    _inject_sidebar_css()
+    """Highlight disabled nav buttons with the accent colour."""
+    _css = f"""
+    <style>
+    button[data-testid="baseButton-secondary"][disabled] {{
+        background-color: {ACCENT} !important;
+        color: white       !important;
+        opacity: 1         !important;
+    }}
+    </style>
+    """
+    st.markdown(_css, unsafe_allow_html=True)
 
 
 # ───────────────────────────────────────────────────────────────
