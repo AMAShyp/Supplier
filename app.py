@@ -11,7 +11,9 @@ from supplier.supplier_handler import get_or_create_supplier
 from home import show_home_page
 from purchase_order.main_po import show_main_po_page
 from supplier.supplier import show_supplier_dashboard
-
+from translation import is_rtl
+if is_rtl():
+    st.markdown("<style>html, body {direction: rtl}</style>", unsafe_allow_html=True)
 
 def main() -> None:
     """AMAS Supplier App – Streamlit entry point."""
