@@ -1,0 +1,8 @@
+{
+  "app_title": "AMAS Supplier App",
+  "nav_home":  "🏠 Home",
+  "nav_pos":   "📦 Purchase Orders",
+  "nav_dash":  "📊 Supplier Dashboard",
+  "logout":    "Log out",
+  "profile_incomplete": "Profile incomplete"
+}
