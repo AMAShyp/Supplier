@@ -25,7 +25,7 @@ def _inject_css() -> None:
             border-radius: 0.35rem;
             text-align: left;
             cursor: pointer;
-            margin-bottom: 0.6rem;       /* ⇧ more vertical space */
+            margin-bottom: 1rem;       /* ⇧ more vertical space */
         }
         .nav-item:hover {
             background: rgba(0, 0, 0, 0.05);
