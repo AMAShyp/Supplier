@@ -1,75 +1,80 @@
 """
 sidebar.py
-Reusable sidebar component for the AMAS Supplier App.
-
-Usage in app.py
----------------
-from sidebar import render_sidebar
-
-menu_choice = render_sidebar(supplier)
-if menu_choice == "🏠 Home":
-    ...
+Sidebar component – navigation via individual buttons (not radio).
 """
 
 import streamlit as st
 from supplier.supplier_handler import get_missing_fields
-from purchase_order.po_handler import get_purchase_orders_for_supplier  # for badge counts
+from purchase_order.po_handler import get_purchase_orders_for_supplier
 
 # ───────────────────────────────────────────────────────────────
 def _supplier_card(supplier: dict):
-    """Small profile summary at the top of the sidebar."""
     st.markdown(
         f"**{supplier.get('suppliername') or 'New Supplier'}**\n\n"
         f"ID&nbsp;`{supplier['supplierid']}`  \n"
         f"✉️ {supplier['contactemail']}",
         unsafe_allow_html=True,
     )
-
-    missing = get_missing_fields(supplier)
-    if missing:
+    if get_missing_fields(supplier):
         st.warning("Profile incomplete", icon="⚠️")
 
 
-def _po_badge(supplier_id: int) -> str:
-    """Return '📦 Purchase Orders (n)' with pending count badge."""
+def _po_badge(supplier_id: int) -> tuple[str, str]:
+    """
+    Return (base_label, label_with_badge).
+    Base label is used to store state; badge label is what the user sees.
+    """
+    base = "📦 Purchase Orders"
     try:
-        active_pos = get_purchase_orders_for_supplier(supplier_id)
-        pending = sum(1 for po in active_pos if po["status"] == "Pending")
+        active = get_purchase_orders_for_supplier(supplier_id)
+        pending = sum(1 for po in active if po["status"] == "Pending")
         if pending:
-            return f"📦 Purchase Orders  ({pending})"
+            return base, f"{base}  ({pending})"
     except Exception:
-        pass  # silently ignore DB hiccups for the sidebar
-    return "📦 Purchase Orders"
+        pass
+    return base, base
 
 
 # ───────────────────────────────────────────────────────────────
 def render_sidebar(supplier: dict) -> str:
     """
-    Build the sidebar and return the selected navigation label.
-    - Displays a mini supplier profile card.
-    - Shows dynamic badge for pending PO count.
-    - Provides Log-out button.
+    Draw sidebar, manage session_state["nav_page"], and return it.
     """
     with st.sidebar:
         st.title("📌 Navigation")
-
         _supplier_card(supplier)
+        st.divider()
 
-        # Navigation radio with dynamic PO badge
-        menu_choice = st.radio(
-            "Go to:",
-            (
-                "🏠 Home",
-                _po_badge(supplier["supplierid"]),
-                "📊 Supplier Dashboard",
-            ),
-            label_visibility="collapsed",
-        )
+        # 1️⃣ ensure state
+        if "nav_page" not in st.session_state:
+            st.session_state["nav_page"] = "🏠 Home"
+
+        current = st.session_state["nav_page"]
+
+        # 2️⃣ navigation buttons
+        # Home -----------------------------------------------------------------
+        if st.button("🏠 Home", use_container_width=True,
+                     disabled=current == "🏠 Home", key="nav_home"):
+            st.session_state["nav_page"] = "🏠 Home"
+            st.rerun()
+
+        # Purchase Orders ------------------------------------------------------
+        base_po, po_label = _po_badge(supplier["supplierid"])
+        if st.button(po_label, use_container_width=True,
+                     disabled=current.startswith("📦"), key="nav_po"):
+            st.session_state["nav_page"] = base_po
+            st.rerun()
+
+        # Dashboard ------------------------------------------------------------
+        if st.button("📊 Supplier Dashboard", use_container_width=True,
+                     disabled=current == "📊 Supplier Dashboard",
+                     key="nav_dash"):
+            st.session_state["nav_page"] = "📊 Supplier Dashboard"
+            st.rerun()
 
         st.divider()
-        if st.button("Log out"):
+        if st.button("Log out", use_container_width=True, key="sidebar_logout"):
             st.logout()
             st.rerun()
 
-    # Strip badge count so app’s router can rely on plain text
-    return menu_choice.split("  ")[0]   # keeps emoji + base text only
+    return st.session_state["nav_page"]
