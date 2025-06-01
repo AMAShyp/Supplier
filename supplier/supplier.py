@@ -28,11 +28,6 @@ def show_supplier_dashboard(supplier: dict):
         with st.expander("✏️ Edit profile"):
             _profile_form(supplier, None, missing_only=False)
 
-    st.divider()
-    if st.button("Log out"):
-        st.logout()
-        st.rerun()
-
 # ───────────────────────────────────────────────────────────────
 def _profile_form(supplier, title, missing_only, missing_fields=None):
     schema = get_supplier_form_structure()
