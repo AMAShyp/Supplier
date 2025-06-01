@@ -25,6 +25,7 @@ def _inject_css() -> None:
             border-radius: 0.35rem;
             text-align: left;
             cursor: pointer;
+            margin-bottom: 0.25rem;      /* ← NEW: matches st.button spacing */
         }
         .nav-item:hover {
             background: rgba(0, 0, 0, 0.05);
@@ -32,7 +33,7 @@ def _inject_css() -> None:
         /* Active highlight */
         .nav-item.active {
             background-color: #e9f4ff;          /* very light blue */
-            color: #0056b3 !important;          /* primary text */
+            color: #0056b3 !important;
             font-weight: 600;
             border-left: 4px solid #0d6efd;     /* accent bar */
             cursor: default;
