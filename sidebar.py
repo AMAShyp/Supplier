@@ -23,9 +23,9 @@ def _inject_css() -> None:
             width: 100%;
             display: block;
             border-radius: 0.35rem;
-            text-align: left;
+            text-align: center;          /* ← center the label */
             cursor: pointer;
-            margin-bottom: 1rem;       /* ⇧ more vertical space */
+            margin-bottom: 1rem;         /* your chosen spacing */
         }
         .nav-item:hover {
             background: rgba(0, 0, 0, 0.05);
