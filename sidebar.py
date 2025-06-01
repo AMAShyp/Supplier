@@ -7,6 +7,7 @@ for the active page and clean badge text.
 import streamlit as st
 from supplier.supplier_handler import get_missing_fields
 from purchase_order.po_handler import get_purchase_orders_for_supplier
+from translation import _, set_language, get_language
 
 STATE_KEY = "nav_page"
 
@@ -112,3 +113,13 @@ def render_sidebar(supplier: dict) -> str:
             st.rerun()
 
     return st.session_state[STATE_KEY]
+
+
+def language_selector():
+    opt = st.selectbox(
+        "Language / زمان",
+        options=[("English", "en"), ("کوردی", "ku")],
+        index=0 if get_language() == "en" else 1,
+        format_func=lambda x: x[0],
+    )
+    set_language(opt[1])
